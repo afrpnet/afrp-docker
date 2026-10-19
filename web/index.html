@@ -219,6 +219,7 @@ async function doLogin() {
       body: JSON.stringify({ site, identity, password })
     });
     const data = await res.json();
+    console.log('Full login response:', JSON.stringify(data, null, 2));
     
     if (!data.ok) {
       // 尝试从嵌套错误中提取有用信息

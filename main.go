@@ -191,6 +191,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		Servers: serversResult.Servers,
 		Config:  oidcConfig,
 	}
+	log.Printf("Building login response: OK=%v, Servers count=%d", result.OK, len(result.Servers))
 
 	// 保存配置（包含 OIDC 参数）
 	cfg := loadConfig()
@@ -220,6 +221,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	saveConfig(cfg)
 
+	log.Printf("Sending login response to client")
 	json.NewEncoder(w).Encode(result)
 }
 
