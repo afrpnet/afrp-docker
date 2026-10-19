@@ -128,7 +128,24 @@ async function doLogin() {
     const data = await res.json();
     
     if (!data.ok) {
-      document.getElementById('login-error').textContent = '登录失败：' + (data.error || '未知错误');
+      // 尝试从嵌套错误中提取有用信息
+      let errorMsg = data.error || '未知错误';
+      
+      // 如果错误信息包含 JSON，尝试解析
+      if (errorMsg.includes('{')) {
+        try {
+          const nestedError = JSON.parse(errorMsg.substring(errorMsg.indexOf('{')));
+          if (nestedError.message) {
+            errorMsg = nestedError.message;
+          } else if (nestedError.error === 'invalid_credentials') {
+            errorMsg = '账号或密码错误';
+          }
+        } catch (e) {
+          // 解析失败，使用原始错误
+        }
+      }
+      
+      document.getElementById('login-error').textContent = '登录失败：' + errorMsg;
       return;
     }
     
