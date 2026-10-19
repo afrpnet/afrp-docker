@@ -33,8 +33,9 @@ type Config struct {
 	AuthOIDCAudience    string `json:"auth_oidc_audience"`
 	AuthOIDCScope       string `json:"auth_oidc_scope"`
 	AuthOIDCTokenEndpoint string `json:"auth_oidc_token_endpoint"`
-	ClientSecret string `json:"client_secret,omitempty"`
-	LoginToken   string `json:"login_token,omitempty"` // 临时 token，用于调用官网 API
+	ClientSecret string   `json:"client_secret,omitempty"`
+	LoginToken   string   `json:"login_token,omitempty"` // 临时 token，用于调用官网 API
+	Tunnels      []Tunnel `json:"tunnels,omitempty"`
 }
 
 type LoginRequest struct {
@@ -65,6 +66,17 @@ type Server struct {
 	Location string `json:"location,omitempty"`
 }
 
+type Tunnel struct {
+	Name         string `json:"name"`
+	Type         string `json:"type"` // tcp | udp | http | https | stcp | sudp | xtcp
+	LocalIP      string `json:"localIp"`
+	LocalPort    int    `json:"localPort"`
+	RemotePort   *int   `json:"remotePort,omitempty"`
+	Subdomain    string `json:"subdomain,omitempty"`
+	CustomDomain string `json:"customDomain,omitempty"`
+	SecretKey    string `json:"secretKey,omitempty"`
+}
+
 var (
 	frpcCmd *exec.Cmd
 	frpcMu  sync.Mutex
@@ -77,6 +89,7 @@ func main() {
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/config", handleConfig)
 	http.HandleFunc("/api/secret", handleSecret)
+	http.HandleFunc("/api/tunnels", handleTunnels)
 	http.HandleFunc("/api/start", handleStart)
 	http.HandleFunc("/api/stop", handleStop)
 	http.HandleFunc("/api/status", handleStatus)
@@ -334,6 +347,73 @@ func callRotateSecretAPI(site, loginToken string) (string, error) {
 	return result.Data.ClientSecret, nil
 }
 
+func handleTunnels(w http.ResponseWriter, r *http.Request) {
+	cfg := loadConfig()
+	
+	switch r.Method {
+	case "GET":
+		// 返回所有隧道
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":      true,
+			"tunnels": cfg.Tunnels,
+		})
+		
+	case "POST":
+		// 添加或更新隧道
+		var req Tunnel
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "invalid request"})
+			return
+		}
+		
+		// 验证必填字段
+		if req.Name == "" || req.Type == "" || req.LocalIP == "" || req.LocalPort == 0 {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "missing required fields"})
+			return
+		}
+		
+		// 查找是否已存在同名隧道
+		found := false
+		for i, t := range cfg.Tunnels {
+			if t.Name == req.Name {
+				cfg.Tunnels[i] = req
+				found = true
+				break
+			}
+		}
+		
+		// 如果不存在，添加到列表
+		if !found {
+			cfg.Tunnels = append(cfg.Tunnels, req)
+		}
+		
+		saveConfig(cfg)
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+		
+	case "DELETE":
+		// 删除隧道
+		var req struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "invalid request"})
+			return
+		}
+		
+		// 从列表中移除
+		newTunnels := make([]Tunnel, 0, len(cfg.Tunnels))
+		for _, t := range cfg.Tunnels {
+			if t.Name != req.Name {
+				newTunnels = append(newTunnels, t)
+			}
+		}
+		cfg.Tunnels = newTunnels
+		
+		saveConfig(cfg)
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
+	}
+}
+
 func handleStart(w http.ResponseWriter, r *http.Request) {
 	frpcMu.Lock()
 	defer frpcMu.Unlock()
@@ -357,7 +437,7 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frpcCmd = exec.Command(frpcBinary, "-c", "/data/config/frpc.ini")
+	frpcCmd = exec.Command(frpcBinary, "-c", "/data/config/frpc.toml")
 	frpcCmd.Stdout = logF
 	frpcCmd.Stderr = logF
 
@@ -425,47 +505,57 @@ func saveConfig(cfg Config) {
 }
 
 func writeFrpcConfig(cfg Config) {
-	ini := fmt.Sprintf(`[common]
-server_addr = %s
-server_port = %d
-user = %s
-auth_method = %s
-auth_oidc_issuer = %s
-auth_oidc_audience = %s
-auth_oidc_scope = %s
-auth_oidc_token_endpoint = %s
-auth_oidc_client_secret = %s
-`, cfg.ServerAddr, cfg.ServerPort, cfg.User, cfg.AuthMethod,
-		cfg.AuthOIDCIssuer, cfg.AuthOIDCAudience, cfg.AuthOIDCScope, cfg.AuthOIDCTokenEndpoint,
-		cfg.ClientSecret)
+	toml := fmt.Sprintf(`# 由 AFRP Web UI 自动生成，请勿手动修改（修改会在下次连接时覆盖）
+serverAddr = "%s"
+serverPort = %d
+user = "%s"
+loginFailExit = false
 
-	os.WriteFile("/data/config/frpc.ini", []byte(ini), 0644)
+auth.method = "oidc"
+auth.oidc.clientID = "%s"
+auth.oidc.clientSecret = "%s"
+auth.oidc.tokenEndpointURL = "%s"
+auth.oidc.audience = "%s"
+auth.oidc.scope = "%s"
+`, cfg.ServerAddr, cfg.ServerPort, cfg.User, cfg.User, cfg.ClientSecret,
+		cfg.AuthOIDCTokenEndpoint, cfg.AuthOIDCAudience, cfg.AuthOIDCScope)
+
+	// 添加隧道配置
+	for _, t := range cfg.Tunnels {
+		toml += fmt.Sprintf(`
+[[proxies]]
+name = "%s"
+type = "%s"
+localIP = "%s"
+localPort = %d
+`, escapeToml(t.Name), escapeToml(t.Type), escapeToml(t.LocalIP), t.LocalPort)
+		
+		if t.Type == "http" || t.Type == "https" {
+			if t.CustomDomain != "" {
+				toml += fmt.Sprintf(`customDomains = ["%s"]
+`, escapeToml(t.CustomDomain))
+			} else if t.Subdomain != "" {
+				toml += fmt.Sprintf(`subdomain = "%s"
+`, escapeToml(t.Subdomain))
+			}
+		} else if t.Type == "stcp" || t.Type == "sudp" || t.Type == "xtcp" {
+			if t.SecretKey != "" {
+				toml += fmt.Sprintf(`secretKey = "%s"
+`, escapeToml(t.SecretKey))
+			}
+		} else {
+			if t.RemotePort != nil && *t.RemotePort > 0 {
+				toml += fmt.Sprintf(`remotePort = %d
+`, *t.RemotePort)
+			}
+		}
+	}
+
+	os.WriteFile("/data/config/frpc.toml", []byte(toml), 0644)
 }
 
-func readLastLines(f *os.File, n int) []string {
-	stat, _ := f.Stat()
-	size := stat.Size()
-
-	buf := make([]byte, min(size, 8192))
-	f.ReadAt(buf, max(0, size-8192))
-
-	lines := strings.Split(string(buf), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return lines
-}
-
-func min(a, b int64) int64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
+func escapeToml(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	return s
 }

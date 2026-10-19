@@ -32,6 +32,11 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 .success { color: #2e7d32; margin-top: 10px; }
 .secret-box { background: #f5f5f5; padding: 12px; border-radius: 4px; font-family: monospace; word-break: break-all; margin: 10px 0; }
 .secret-actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+.tunnel-item { padding: 12px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.tunnel-info { flex: 1; }
+.tunnel-name { font-weight: bold; margin-bottom: 4px; }
+.tunnel-details { font-size: 13px; color: #666; }
+.tunnel-actions { display: flex; gap: 5px; }
 .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .modal { background: white; padding: 24px; border-radius: 8px; max-width: 500px; width: 90%; }
 .modal h3 { margin-top: 0; }
@@ -72,6 +77,10 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
     </div>
   </div>
   
+  <h2 style="margin-top: 20px;">隧道管理</h2>
+  <div id="tunnel-list"></div>
+  <button class="secondary" onclick="showAddTunnelModal()" style="margin-top: 10px;">+ 添加隧道</button>
+  
   <h2 style="margin-top: 20px;">状态</h2>
   <div id="status" class="status stopped">未知</div>
   <button onclick="startFrpc()">启动</button>
@@ -98,6 +107,69 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
       <button class="secondary" onclick="closePasteModal()">取消</button>
       <button onclick="savePastedSecret()">保存</button>
     </div>
+  </div>
+</div>
+
+<!-- 隧道编辑对话框 -->
+<div id="tunnel-modal" class="modal-overlay hidden" onclick="closeTunnelModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width: 600px;">
+    <h3 id="tunnel-modal-title">添加隧道</h3>
+    <form id="tunnel-form">
+      <input type="hidden" id="tunnel-edit-name" value="">
+      
+      <label>隧道名称 *
+        <input type="text" id="tunnel-name" required placeholder="例如：web-server">
+      </label>
+      
+      <label>类型 *
+        <select id="tunnel-type" required onchange="updateTunnelFormFields()">
+          <option value="tcp">TCP（端口转发）</option>
+          <option value="udp">UDP</option>
+          <option value="http">HTTP（Web）</option>
+          <option value="https">HTTPS（Web）</option>
+          <option value="stcp">STCP（安全 TCP）</option>
+          <option value="sudp">SUDP（安全 UDP）</option>
+          <option value="xtcp">XTCP（点对点）</option>
+        </select>
+      </label>
+      
+      <label>本地地址 *
+        <input type="text" id="tunnel-local-ip" value="127.0.0.1" required placeholder="127.0.0.1">
+      </label>
+      
+      <label>本地端口 *
+        <input type="number" id="tunnel-local-port" required min="1" max="65535" placeholder="8080">
+      </label>
+      
+      <div id="remote-port-field">
+        <label>远程端口 *
+          <input type="number" id="tunnel-remote-port" min="1" max="65535" placeholder="80">
+        </label>
+      </div>
+      
+      <div id="subdomain-field" class="hidden">
+        <label>子域名
+          <input type="text" id="tunnel-subdomain" placeholder="myapp">
+        </label>
+      </div>
+      
+      <div id="custom-domain-field" class="hidden">
+        <label>自定义域名
+          <input type="text" id="tunnel-custom-domain" placeholder="example.com">
+        </label>
+      </div>
+      
+      <div id="secret-key-field" class="hidden">
+        <label>访问密钥
+          <input type="text" id="tunnel-secret-key" placeholder="用于 stcp/sudp/xtcp 的访问密钥">
+        </label>
+      </div>
+      
+      <div class="modal-actions">
+        <button type="button" class="secondary" onclick="closeTunnelModal()">取消</button>
+        <button type="submit" onclick="saveTunnel(event)">保存</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -160,6 +232,9 @@ async function doLogin() {
     
     // 加载当前保存的 secret（如果有）
     loadSecret();
+    
+    // 加载隧道列表
+    loadTunnels();
     
     refreshStatus();
     refreshLog();
@@ -349,6 +424,184 @@ async function refreshLog() {
   const res = await fetch('/api/log');
   const text = await res.text();
   document.getElementById('log').textContent = text || '暂无日志';
+}
+
+// 隧道管理功能
+let tunnels = [];
+
+async function loadTunnels() {
+  try {
+    const res = await fetch('/api/tunnels');
+    if (!res.ok) return;
+    const data = await res.json();
+    tunnels = data.tunnels || [];
+    renderTunnels();
+  } catch (err) {
+    console.error('Failed to load tunnels:', err);
+  }
+}
+
+function renderTunnels() {
+  const container = document.getElementById('tunnel-list');
+  container.innerHTML = '';
+  
+  if (tunnels.length === 0) {
+    container.innerHTML = '<div style="color: #999; font-size: 13px;">暂无隧道，点击"添加隧道"创建</div>';
+    return;
+  }
+  
+  tunnels.forEach((t, idx) => {
+    const div = document.createElement('div');
+    div.className = 'tunnel-item';
+    
+    let details = `${t.type.toUpperCase()} ${t.localIp}:${t.localPort}`;
+    if (t.type === 'http' || t.type === 'https') {
+      if (t.customDomain) {
+        details += ` → ${t.customDomain}`;
+      } else if (t.subdomain) {
+        details += ` → ${t.subdomain}.afrp.net`;
+      }
+    } else if (t.type === 'stcp' || t.type === 'sudp' || t.type === 'xtcp') {
+      details += t.secretKey ? ' → 密钥已设置' : ' → 无密钥';
+    } else {
+      details += t.remotePort ? ` → :${t.remotePort}` : '';
+    }
+    
+    div.innerHTML = `
+      <div class="tunnel-info">
+        <div class="tunnel-name">${escapeHtml(t.name)}</div>
+        <div class="tunnel-details">${details}</div>
+      </div>
+      <div class="tunnel-actions">
+        <button class="secondary" onclick="editTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">编辑</button>
+        <button class="danger" onclick="deleteTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">删除</button>
+      </div>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function showAddTunnelModal() {
+  document.getElementById('tunnel-modal-title').textContent = '添加隧道';
+  document.getElementById('tunnel-edit-name').value = '';
+  document.getElementById('tunnel-form').reset();
+  document.getElementById('tunnel-local-ip').value = '127.0.0.1';
+  updateTunnelFormFields();
+  document.getElementById('tunnel-modal').classList.remove('hidden');
+}
+
+function editTunnel(idx) {
+  const t = tunnels[idx];
+  document.getElementById('tunnel-modal-title').textContent = '编辑隧道';
+  document.getElementById('tunnel-edit-name').value = t.name;
+  document.getElementById('tunnel-name').value = t.name;
+  document.getElementById('tunnel-type').value = t.type;
+  document.getElementById('tunnel-local-ip').value = t.localIp;
+  document.getElementById('tunnel-local-port').value = t.localPort;
+  document.getElementById('tunnel-remote-port').value = t.remotePort || '';
+  document.getElementById('tunnel-subdomain').value = t.subdomain || '';
+  document.getElementById('tunnel-custom-domain').value = t.customDomain || '';
+  document.getElementById('tunnel-secret-key').value = t.secretKey || '';
+  updateTunnelFormFields();
+  document.getElementById('tunnel-modal').classList.remove('hidden');
+}
+
+function closeTunnelModal(event) {
+  if (!event || event.target === document.getElementById('tunnel-modal')) {
+    document.getElementById('tunnel-modal').classList.add('hidden');
+  }
+}
+
+function updateTunnelFormFields() {
+  const type = document.getElementById('tunnel-type').value;
+  const isWeb = type === 'http' || type === 'https';
+  const isP2P = type === 'stcp' || type === 'sudp' || type === 'xtcp';
+  
+  // 显示/隐藏字段
+  document.getElementById('remote-port-field').classList.toggle('hidden', isWeb || isP2P);
+  document.getElementById('subdomain-field').classList.toggle('hidden', !isWeb);
+  document.getElementById('custom-domain-field').classList.toggle('hidden', !isWeb);
+  document.getElementById('secret-key-field').classList.toggle('hidden', !isP2P);
+  
+  // 更新远程端口必填状态
+  const remotePortInput = document.getElementById('tunnel-remote-port');
+  if (isWeb || isP2P) {
+    remotePortInput.removeAttribute('required');
+  } else {
+    remotePortInput.setAttribute('required', '');
+  }
+}
+
+async function saveTunnel(event) {
+  event.preventDefault();
+  
+  const editName = document.getElementById('tunnel-edit-name').value;
+  const tunnel = {
+    name: document.getElementById('tunnel-name').value.trim(),
+    type: document.getElementById('tunnel-type').value,
+    localIp: document.getElementById('tunnel-local-ip').value.trim(),
+    localPort: parseInt(document.getElementById('tunnel-local-port').value),
+    remotePort: document.getElementById('tunnel-remote-port').value ? 
+                parseInt(document.getElementById('tunnel-remote-port').value) : null,
+    subdomain: document.getElementById('tunnel-subdomain').value.trim(),
+    customDomain: document.getElementById('tunnel-custom-domain').value.trim(),
+    secretKey: document.getElementById('tunnel-secret-key').value.trim()
+  };
+  
+  if (!tunnel.name || !tunnel.type || !tunnel.localIp || !tunnel.localPort) {
+    alert('请填写所有必填字段');
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/tunnels', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(tunnel)
+    });
+    const data = await res.json();
+    
+    if (data.ok) {
+      closeTunnelModal();
+      await loadTunnels();
+      alert(editName ? '隧道已更新' : '隧道已添加');
+    } else {
+      alert('保存失败：' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('保存失败：' + err.message);
+  }
+}
+
+async function deleteTunnel(idx) {
+  const t = tunnels[idx];
+  if (!confirm(`确定删除隧道 "${t.name}" 吗？`)) {
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/tunnels', {
+      method: 'DELETE',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ name: t.name })
+    });
+    const data = await res.json();
+    
+    if (data.ok) {
+      await loadTunnels();
+      alert('隧道已删除');
+    } else {
+      alert('删除失败：' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    alert('删除失败：' + err.message);
+  }
 }
 
 // 页面加载时初始化，确保所有弹窗都隐藏
