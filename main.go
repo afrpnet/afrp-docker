@@ -159,14 +159,27 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Servers API response: %s", string(serversResp))
 
+	// 尝试多种解析方式
 	var serversResult struct {
 		Servers []Server `json:"servers"`
 	}
+	
+	// 先尝试解析为 {"servers": [...]}
 	if err := json.Unmarshal(serversResp, &serversResult); err != nil {
-		log.Printf("Failed to parse servers response: %v, raw: %s", err, string(serversResp))
-		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse servers response failed"})
-		return
+		log.Printf("Failed to parse as {servers: [...]}, trying direct array: %v", err)
+		
+		// 尝试直接解析为数组 [...]
+		var directServers []Server
+		if err2 := json.Unmarshal(serversResp, &directServers); err2 == nil {
+			log.Printf("Successfully parsed as direct array with %d servers", len(directServers))
+			serversResult.Servers = directServers
+		} else {
+			log.Printf("Failed to parse as direct array too: %v, raw: %s", err2, string(serversResp))
+			json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse servers response failed"})
+			return
+		}
 	}
+	
 	log.Printf("Parsed %d servers from API", len(serversResult.Servers))
 	for i, srv := range serversResult.Servers {
 		log.Printf("Server[%d]: ID=%d, Name=%s, Addr=%s, Port=%d", i, srv.ID, srv.Name, srv.Addr, srv.Port)
