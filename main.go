@@ -165,19 +165,48 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 步骤3: 获取公共配置（OIDC 参数）
+	configResp, err := callConfigAPI(req.Site)
+	var oidcConfig OIDCConfig
+	if err == nil {
+		var configResult struct {
+			OK   bool       `json:"ok"`
+			Data OIDCConfig `json:"data"`
+		}
+		if err := json.Unmarshal(configResp, &configResult); err == nil && configResult.OK {
+			oidcConfig = configResult.Data
+		}
+	}
+
 	// 构建响应
 	result := LoginResponse{
 		OK:      true,
 		Servers: serversResult.Servers,
+		Config:  oidcConfig,
 	}
 
-	// 保存配置（只保存 token，不保存为 client_secret）
+	// 保存配置（包含 OIDC 参数）
 	cfg := loadConfig()
 	cfg.Enabled = true
 	cfg.User = req.Identity
 	cfg.AuthMethod = "oidc"
 	cfg.AuthOIDCIssuer = req.Site
 	cfg.LoginToken = loginResponse.Data.Token // 保存登录 token 用于后续 API 调用
+	
+	// 保存 OIDC 配置参数
+	if oidcConfig.TokenEndpoint != "" {
+		cfg.AuthOIDCTokenEndpoint = oidcConfig.TokenEndpoint
+	} else {
+		// 默认值
+		cfg.AuthOIDCTokenEndpoint = req.Site + "/oidc/token.php"
+	}
+	if oidcConfig.Audience != "" {
+		cfg.AuthOIDCAudience = oidcConfig.Audience
+	}
+	if oidcConfig.Scope != "" {
+		cfg.AuthOIDCScope = oidcConfig.Scope
+	}
+	
 	if len(result.Servers) > 0 {
 		cfg.ServerAddr = result.Servers[0].Addr
 		cfg.ServerPort = result.Servers[0].Port
@@ -229,6 +258,32 @@ func callServersAPI(site, token string) ([]byte, error) {
 		return nil, fmt.Errorf("create request failed: %v", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %v", err)
+	}
+	
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+	
+	return body, nil
+}
+
+func callConfigAPI(site string) ([]byte, error) {
+	apiURL := site + "/api/config.php"
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %v", err)
+	}
 	
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
