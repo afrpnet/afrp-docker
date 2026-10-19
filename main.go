@@ -100,22 +100,48 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		req.Site = defaultSite
 	}
 
-	// 调用官网 API 获取配置和服务器列表
-	resp, err := callImportAPI(req.Site, req.Identity, req.Password, false)
+	// 步骤1: 调用官网 API 登录获取 token
+	loginResp, err := callLoginAPI(req.Site, req.Identity, req.Password)
 	if err != nil {
 		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: err.Error()})
 		return
 	}
 
-	var result LoginResponse
-	if err := json.Unmarshal(resp, &result); err != nil {
-		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse response failed"})
+	var loginResult struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error,omitempty"`
+		Token string `json:"token,omitempty"`
+	}
+	if err := json.Unmarshal(loginResp, &loginResult); err != nil {
+		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse login response failed"})
 		return
 	}
 
-	if !result.OK {
-		json.NewEncoder(w).Encode(result)
+	if !loginResult.OK || loginResult.Token == "" {
+		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: loginResult.Error})
 		return
+	}
+
+	// 步骤2: 使用 token 获取服务器列表
+	serversResp, err := callServersAPI(req.Site, loginResult.Token)
+	if err != nil {
+		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "get servers failed: " + err.Error()})
+		return
+	}
+
+	var serversResult struct {
+		Servers []Server `json:"servers"`
+	}
+	if err := json.Unmarshal(serversResp, &serversResult); err != nil {
+		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse servers response failed"})
+		return
+	}
+
+	// 构建响应
+	result := LoginResponse{
+		OK:      true,
+		Secret:  loginResult.Token,
+		Servers: serversResult.Servers,
 	}
 
 	// 保存配置
@@ -124,15 +150,6 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	cfg.User = req.Identity
 	cfg.AuthMethod = "oidc"
 	cfg.AuthOIDCIssuer = req.Site
-	if result.Config.TokenEndpoint != "" {
-		cfg.AuthOIDCTokenEndpoint = result.Config.TokenEndpoint
-	}
-	if result.Config.Audience != "" {
-		cfg.AuthOIDCAudience = result.Config.Audience
-	}
-	if result.Config.Scope != "" {
-		cfg.AuthOIDCScope = result.Config.Scope
-	}
 	if len(result.Servers) > 0 {
 		cfg.ServerAddr = result.Servers[0].Addr
 		cfg.ServerPort = result.Servers[0].Port
@@ -142,8 +159,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-func callImportAPI(site, identity, password string, rotate bool) ([]byte, error) {
-	// 构建登录请求
+func callLoginAPI(site, identity, password string) ([]byte, error) {
 	loginReq := map[string]interface{}{
 		"identity": identity,
 		"password": password,
@@ -152,13 +168,39 @@ func callImportAPI(site, identity, password string, rotate bool) ([]byte, error)
 	
 	loginData, _ := json.Marshal(loginReq)
 	
-	// 发送 HTTP 请求到官网 API（根据其他客户端确认的正确路径）
 	apiURL := site + "/api/login.php"
 	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(loginData))
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %v", err)
+	}
+	
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+	
+	return body, nil
+}
+
+func callServersAPI(site, token string) ([]byte, error) {
+	apiURL := site + "/api/servers.php"
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
