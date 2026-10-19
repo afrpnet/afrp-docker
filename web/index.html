@@ -55,6 +55,10 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
   <label>密码
     <input type="password" id="password" placeholder="登录密码">
   </label>
+  <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; margin-bottom: 10px;">
+    <input type="checkbox" id="remember-me" style="width: auto; margin: 0;">
+    <span>记住账号密码</span>
+  </label>
   <button onclick="doLogin()" id="login-btn">登录</button>
   <div style="margin-top: 10px; font-size: 13px; color: #666;">
     使用 <a href="https://www.afrp.net" target="_blank" style="color: #1976d2;">AFRP 官网</a> 账号登录
@@ -182,10 +186,23 @@ async function doLogin() {
   const site = 'https://www.afrp.net'; // 固定官网地址
   const identity = document.getElementById('identity').value.trim();
   const password = document.getElementById('password').value;
+  const rememberMe = document.getElementById('remember-me').checked;
   
   if (!identity || !password) {
     document.getElementById('login-error').textContent = '请填写账号和密码';
     return;
+  }
+  
+  // 如果勾选了"记住我"，保存到 localStorage
+  if (rememberMe) {
+    localStorage.setItem('afrp_login_creds', JSON.stringify({
+      identity: identity,
+      password: password,
+      timestamp: new Date().toISOString()
+    }));
+  } else {
+    // 否则清除保存的凭证
+    localStorage.removeItem('afrp_login_creds');
   }
   
   document.getElementById('login-btn').disabled = true;
@@ -307,14 +324,17 @@ function saveLoginState(username, site, serverList) {
 
 async function loadSecret() {
   try {
+    console.log('Loading secret...');
     const res = await fetch('/api/secret');
     if (!res.ok) {
+      console.log('Secret API returned non-OK status:', res.status);
       // 未登录或 API 错误，不显示 secret
       currentSecret = '';
       updateSecretDisplay();
       return;
     }
     const data = await res.json();
+    console.log('Secret loaded:', data);
     currentSecret = data.secret || '';
     updateSecretDisplay();
   } catch (err) {
@@ -458,9 +478,14 @@ let tunnels = [];
 
 async function loadTunnels() {
   try {
+    console.log('Loading tunnels...');
     const res = await fetch('/api/tunnels');
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.log('Tunnels API returned non-OK status:', res.status);
+      return;
+    }
     const data = await res.json();
+    console.log('Tunnels loaded:', data);
     tunnels = data.tunnels || [];
     renderTunnels();
   } catch (err) {
@@ -643,6 +668,23 @@ window.addEventListener('load', async () => {
   const secretInput = document.getElementById('secret-input');
   if (secretInput) {
     secretInput.value = '';
+  }
+  
+  // 恢复保存的账号密码（如果有）
+  const savedCreds = localStorage.getItem('afrp_login_creds');
+  if (savedCreds) {
+    try {
+      const creds = JSON.parse(savedCreds);
+      if (creds.identity && creds.password) {
+        document.getElementById('identity').value = creds.identity;
+        document.getElementById('password').value = creds.password;
+        document.getElementById('remember-me').checked = true;
+        console.log('Restored saved credentials');
+      }
+    } catch (err) {
+      console.error('Failed to restore credentials:', err);
+      localStorage.removeItem('afrp_login_creds');
+    }
   }
   
   // 检查是否已登录（从 localStorage 恢复）
