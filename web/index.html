@@ -276,6 +276,13 @@ function renderServers(serverList) {
   const container = document.getElementById('server-list');
   container.innerHTML = '';
   
+  console.log('Rendering servers:', serverList);
+  
+  if (!serverList || serverList.length === 0) {
+    container.innerHTML = '<div style="color: #999; font-size: 13px;">暂无可用服务器</div>';
+    return;
+  }
+  
   serverList.forEach((srv, idx) => {
     const div = document.createElement('div');
     div.className = 'server-item';
