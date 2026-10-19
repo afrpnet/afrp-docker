@@ -19,5 +19,5 @@ RUN wget -q https://github.com/fatedier/frp/releases/download/v${FRPC_VERSION}/f
 COPY --from=builder /build/afrp-web /usr/local/bin/afrp-web
 COPY web/ /web/
 
-EXPOSE 8080
+EXPOSE 8000
 CMD ["afrp-web"]

@@ -48,8 +48,8 @@ func main() {
 	http.HandleFunc("/api/log", handleLog)
 	http.Handle("/", http.FileServer(http.Dir("/web")))
 
-	log.Println("AFRP Web UI starting on :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("AFRP Web UI starting on :8000")
+	log.Fatal(http.ListenAndServe(":8000", nil))
 }
 
 func handleConfig(w http.ResponseWriter, r *http.Request) {
