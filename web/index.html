@@ -69,7 +69,12 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 <!-- 配置卡片（登录后显示） -->
 <div id="config-card" class="card hidden">
   <h2>服务器选择</h2>
-  <div id="server-list" class="server-list"></div>
+  <div style="display: flex; gap: 10px;">
+    <select id="server-select" style="flex: 1; padding: 10px; font-size: 14px; border-radius: 4px; border: 1px solid #ddd;" onchange="onServerSelectChange()">
+      <option value="">请选择服务器...</option>
+    </select>
+    <button class="secondary" onclick="refreshServers()" style="padding: 10px 15px; white-space: nowrap;">🔄 刷新</button>
+  </div>
   
   <h2 style="margin-top: 20px;">Client Secret</h2>
   <div id="secret-display">
@@ -273,32 +278,37 @@ async function doLogin() {
 }
 
 function renderServers(serverList) {
-  const container = document.getElementById('server-list');
-  container.innerHTML = '';
+  const select = document.getElementById('server-select');
+  select.innerHTML = '<option value="">请选择服务器...</option>';
   
   console.log('Rendering servers:', serverList);
   
   if (!serverList || serverList.length === 0) {
-    container.innerHTML = '<div style="color: #999; font-size: 13px;">暂无可用服务器</div>';
+    select.innerHTML = '<option value="" disabled>暂无可用服务器</option>';
     return;
   }
   
   serverList.forEach((srv, idx) => {
-    const div = document.createElement('div');
-    div.className = 'server-item';
-    div.textContent = `${srv.name || ('#' + srv.id)} (${srv.addr}:${srv.port})${srv.location ? ' · ' + srv.location : ''}`;
-    div.onclick = () => selectServer(idx, div);
+    const option = document.createElement('option');
+    option.value = idx;
+    option.textContent = `${srv.name || ('#' + srv.id)} (${srv.addr}:${srv.port})${srv.location ? ' · ' + srv.location : ''}`;
     if (idx === 0) {
-      div.classList.add('selected');
+      option.selected = true;
       selectedServer = srv;
     }
-    container.appendChild(div);
+    select.appendChild(option);
   });
 }
 
-function selectServer(idx, el) {
-  document.querySelectorAll('.server-item').forEach(e => e.classList.remove('selected'));
-  el.classList.add('selected');
+function onServerSelectChange() {
+  const select = document.getElementById('server-select');
+  const idx = parseInt(select.value);
+  
+  if (isNaN(idx) || !servers[idx]) {
+    selectedServer = null;
+    return;
+  }
+  
   selectedServer = servers[idx];
   
   // 更新配置中的服务器地址
@@ -323,6 +333,9 @@ function selectServer(idx, el) {
       console.error('Failed to save server selection:', err);
     }
   }
+  
+  // 重新渲染隧道列表（因为子域名可能变化）
+  renderTunnels();
 }
 
 function saveLoginState(username, site, serverList) {
@@ -334,6 +347,59 @@ function saveLoginState(username, site, serverList) {
     login_time: new Date().toISOString()
   };
   localStorage.setItem('afrp_config', JSON.stringify(config));
+}
+
+async function refreshServers() {
+  try {
+    console.log('Refreshing servers...');
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '刷新中...';
+    
+    // 重新调用登录 API 获取最新服务器列表
+    const identity = document.getElementById('identity').value;
+    const password = document.getElementById('password').value;
+    
+    if (!identity || !password) {
+      alert('请先输入账号密码');
+      return;
+    }
+    
+    const response = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        identity: identity,
+        password: password,
+        site: 'https://www.afrp.net'
+      })
+    });
+    
+    const data = await response.json();
+    console.log('Refresh servers response:', data);
+    
+    if (data.ok && data.servers) {
+      servers = data.servers;
+      renderServers(servers);
+      
+      // 更新本地存储
+      saveLoginState(identity, 'https://www.afrp.net', servers);
+      
+      // 重新渲染隧道列表（子域名可能变化）
+      renderTunnels();
+      
+      alert(`已刷新服务器列表，共 ${servers.length} 个服务器`);
+    } else {
+      alert('刷新失败：' + (data.error || '未知错误'));
+    }
+  } catch (err) {
+    console.error('Failed to refresh servers:', err);
+    alert('网络错误：' + err.message);
+  } finally {
+    const btn = event.target;
+    btn.disabled = false;
+    btn.textContent = ' 刷新';
+  }
 }
 
 async function loadSecret() {
