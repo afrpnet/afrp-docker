@@ -118,23 +118,27 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var loginResult struct {
+	var loginResponse struct {
 		OK    bool   `json:"ok"`
 		Error string `json:"error,omitempty"`
-		Token string `json:"token,omitempty"`
+		Data  struct {
+			Token     string                 `json:"token"`
+			ExpiresAt string                 `json:"expires_at"`
+			User      map[string]interface{} `json:"user"`
+		} `json:"data"`
 	}
-	if err := json.Unmarshal(loginResp, &loginResult); err != nil {
+	if err := json.Unmarshal(loginResp, &loginResponse); err != nil {
 		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse login response failed"})
 		return
 	}
 
-	if !loginResult.OK || loginResult.Token == "" {
-		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: loginResult.Error})
+	if !loginResponse.OK || loginResponse.Data.Token == "" {
+		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: loginResponse.Error})
 		return
 	}
 
 	// 步骤2: 使用 token 获取服务器列表
-	serversResp, err := callServersAPI(req.Site, loginResult.Token)
+	serversResp, err := callServersAPI(req.Site, loginResponse.Data.Token)
 	if err != nil {
 		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "get servers failed: " + err.Error()})
 		return
@@ -160,7 +164,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	cfg.User = req.Identity
 	cfg.AuthMethod = "oidc"
 	cfg.AuthOIDCIssuer = req.Site
-	cfg.LoginToken = loginResult.Token // 保存登录 token 用于后续 API 调用
+	cfg.LoginToken = loginResponse.Data.Token // 保存登录 token 用于后续 API 调用
 	if len(result.Servers) > 0 {
 		cfg.ServerAddr = result.Servers[0].Addr
 		cfg.ServerPort = result.Servers[0].Port
