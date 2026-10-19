@@ -20,89 +20,132 @@ button.danger:hover { background: #c62828; }
 .status.running { background: #e8f5e9; color: #2e7d32; }
 .status.stopped { background: #ffebee; color: #c62828; }
 pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; overflow-x: auto; max-height: 400px; overflow-y: auto; font-size: 13px; }
+.hidden { display: none; }
+.server-list { margin-top: 10px; }
+.server-item { padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px; cursor: pointer; }
+.server-item:hover { background: #f0f0f0; }
+.server-item.selected { background: #e3f2fd; border-color: #1976d2; }
+.error { color: #c62828; margin-top: 10px; }
+.success { color: #2e7d32; margin-top: 10px; }
 </style>
 </head>
 <body>
 <h1>AFRP 内网穿透</h1>
 
-<div class="card">
-  <h2>状态</h2>
+<!-- 登录卡片 -->
+<div id="login-card" class="card">
+  <h2>登录</h2>
+  <label>官网地址
+    <input type="text" id="site" value="https://www.afrp.net" placeholder="https://www.afrp.net">
+  </label>
+  <label>账号 / 邮箱
+    <input type="text" id="identity" placeholder="用户名或邮箱">
+  </label>
+  <label>密码
+    <input type="password" id="password" placeholder="登录密码">
+  </label>
+  <button onclick="doLogin()" id="login-btn">登录</button>
+  <div id="login-error" class="error"></div>
+</div>
+
+<!-- 配置卡片（登录后显示） -->
+<div id="config-card" class="card hidden">
+  <h2>服务器选择</h2>
+  <div id="server-list" class="server-list"></div>
+  
+  <h2 style="margin-top: 20px;">状态</h2>
   <div id="status" class="status stopped">未知</div>
   <button onclick="startFrpc()">启动</button>
   <button onclick="stopFrpc()" class="danger">停止</button>
   <button onclick="refreshStatus()">刷新</button>
 </div>
 
-<div class="card">
-  <h2>配置</h2>
-  <label>启用
-    <select id="enabled">
-      <option value="true">是</option>
-      <option value="false">否</option>
-    </select>
-  </label>
-  <label>服务器地址
-    <input type="text" id="server_addr" placeholder="如：frp.afrp.net">
-  </label>
-  <label>服务器端口
-    <input type="number" id="server_port" value="7000">
-  </label>
-  <label>用户名
-    <input type="text" id="user" placeholder="官网用户名">
-  </label>
-  <label>认证方式
-    <input type="text" id="auth_method" value="oidc" readonly>
-  </label>
-  <label>OIDC Issuer
-    <input type="text" id="auth_oidc_issuer" placeholder="https://www.afrp.net">
-  </label>
-  <label>OIDC Audience
-    <input type="text" id="auth_oidc_audience" placeholder="afrp.net">
-  </label>
-  <label>OIDC Scope
-    <input type="text" id="auth_oidc_scope" placeholder="afrp">
-  </label>
-  <label>OIDC Token Endpoint
-    <input type="text" id="auth_oidc_token_endpoint" placeholder="https://www.afrp.net/oidc/token.php">
-  </label>
-  <button onclick="saveConfig()">保存配置</button>
-</div>
-
-<div class="card">
+<!-- 日志卡片 -->
+<div id="log-card" class="card hidden">
   <h2>日志</h2>
   <pre id="log">暂无日志</pre>
   <button onclick="refreshLog()">刷新日志</button>
 </div>
 
 <script>
-async function loadConfig() {
-  const res = await fetch('/api/config');
-  const cfg = await res.json();
-  document.getElementById('enabled').value = cfg.enabled ? 'true' : 'false';
-  document.getElementById('server_addr').value = cfg.server_addr || '';
-  document.getElementById('server_port').value = cfg.server_port || 7000;
-  document.getElementById('user').value = cfg.user || '';
-  document.getElementById('auth_method').value = cfg.auth_method || 'oidc';
-  document.getElementById('auth_oidc_issuer').value = cfg.auth_oidc_issuer || '';
-  document.getElementById('auth_oidc_audience').value = cfg.auth_oidc_audience || '';
-  document.getElementById('auth_oidc_scope').value = cfg.auth_oidc_scope || '';
-  document.getElementById('auth_oidc_token_endpoint').value = cfg.auth_oidc_token_endpoint || '';
+let selectedServer = null;
+let servers = [];
+
+async function doLogin() {
+  const site = document.getElementById('site').value || 'https://www.afrp.net';
+  const identity = document.getElementById('identity').value.trim();
+  const password = document.getElementById('password').value;
+  
+  if (!identity || !password) {
+    document.getElementById('login-error').textContent = '请填写账号和密码';
+    return;
+  }
+  
+  document.getElementById('login-btn').disabled = true;
+  document.getElementById('login-error').textContent = '登录中...';
+  
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ site, identity, password })
+    });
+    const data = await res.json();
+    
+    if (!data.ok) {
+      document.getElementById('login-error').textContent = '登录失败：' + (data.error || '未知错误');
+      return;
+    }
+    
+    // 登录成功，显示配置卡片
+    document.getElementById('login-card').classList.add('hidden');
+    document.getElementById('config-card').classList.remove('hidden');
+    document.getElementById('log-card').classList.remove('hidden');
+    
+    // 显示服务器列表
+    servers = data.servers || [];
+    renderServers(servers);
+    
+    refreshStatus();
+    refreshLog();
+  } catch (err) {
+    document.getElementById('login-error').textContent = '网络错误：' + err.message;
+  } finally {
+    document.getElementById('login-btn').disabled = false;
+  }
 }
 
-async function saveConfig() {
-  const cfg = {
-    enabled: document.getElementById('enabled').value === 'true',
-    server_addr: document.getElementById('server_addr').value,
-    server_port: parseInt(document.getElementById('server_port').value),
-    user: document.getElementById('user').value,
-    auth_method: 'oidc',
-    auth_oidc_issuer: document.getElementById('auth_oidc_issuer').value,
-    auth_oidc_audience: document.getElementById('auth_oidc_audience').value,
-    auth_oidc_scope: document.getElementById('auth_oidc_scope').value,
-    auth_oidc_token_endpoint: document.getElementById('auth_oidc_token_endpoint').value,
-  };
-  await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cfg) });
-  alert('配置已保存');
+function renderServers(serverList) {
+  const container = document.getElementById('server-list');
+  container.innerHTML = '';
+  
+  serverList.forEach((srv, idx) => {
+    const div = document.createElement('div');
+    div.className = 'server-item';
+    div.textContent = `${srv.name || ('#' + srv.id)} (${srv.addr}:${srv.port})${srv.location ? ' · ' + srv.location : ''}`;
+    div.onclick = () => selectServer(idx, div);
+    if (idx === 0) {
+      div.classList.add('selected');
+      selectedServer = srv;
+    }
+    container.appendChild(div);
+  });
+}
+
+function selectServer(idx, el) {
+  document.querySelectorAll('.server-item').forEach(e => e.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedServer = servers[idx];
+  
+  // 更新配置中的服务器地址
+  fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      server_addr: selectedServer.addr,
+      server_port: selectedServer.port
+    })
+  });
 }
 
 async function refreshStatus() {
@@ -135,10 +178,6 @@ async function refreshLog() {
   const text = await res.text();
   document.getElementById('log').textContent = text || '暂无日志';
 }
-
-loadConfig();
-refreshStatus();
-refreshLog();
 </script>
 </body>
 </html>
