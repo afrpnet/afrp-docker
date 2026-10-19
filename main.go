@@ -34,6 +34,7 @@ type Config struct {
 	AuthOIDCScope       string `json:"auth_oidc_scope"`
 	AuthOIDCTokenEndpoint string `json:"auth_oidc_token_endpoint"`
 	ClientSecret string `json:"client_secret,omitempty"`
+	LoginToken   string `json:"login_token,omitempty"` // 临时 token，用于调用官网 API
 }
 
 type LoginRequest struct {
@@ -142,17 +143,16 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	// 构建响应
 	result := LoginResponse{
 		OK:      true,
-		Secret:  loginResult.Token,
 		Servers: serversResult.Servers,
 	}
 
-	// 保存配置
+	// 保存配置（只保存 token，不保存为 client_secret）
 	cfg := loadConfig()
 	cfg.Enabled = true
 	cfg.User = req.Identity
 	cfg.AuthMethod = "oidc"
 	cfg.AuthOIDCIssuer = req.Site
-	cfg.ClientSecret = loginResult.Token
+	cfg.LoginToken = loginResult.Token // 保存登录 token 用于后续 API 调用
 	if len(result.Servers) > 0 {
 		cfg.ServerAddr = result.Servers[0].Addr
 		cfg.ServerPort = result.Servers[0].Port
@@ -257,8 +257,8 @@ func handleSecret(w http.ResponseWriter, r *http.Request) {
 		
 		cfg := loadConfig()
 		if req.Action == "rotate" {
-			// 调用官网 API 生成新密钥
-			newSecret, err := callRotateSecretAPI(cfg.AuthOIDCIssuer, cfg.ClientSecret)
+			// 使用登录 token 调用官网 API 生成新密钥
+			newSecret, err := callRotateSecretAPI(cfg.AuthOIDCIssuer, cfg.LoginToken)
 			if err != nil {
 				json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
 				return
@@ -272,7 +272,7 @@ func handleSecret(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func callRotateSecretAPI(site, currentSecret string) (string, error) {
+func callRotateSecretAPI(site, loginToken string) (string, error) {
 	apiURL := site + "/api/secret.php"
 	
 	reqBody := map[string]interface{}{}
@@ -283,8 +283,8 @@ func callRotateSecretAPI(site, currentSecret string) (string, error) {
 		return "", fmt.Errorf("create request failed: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if currentSecret != "" {
-		req.Header.Set("Authorization", "Bearer "+currentSecret)
+	if loginToken != "" {
+		req.Header.Set("Authorization", "Bearer "+loginToken)
 	}
 	
 	client := &http.Client{Timeout: 10 * time.Second}
