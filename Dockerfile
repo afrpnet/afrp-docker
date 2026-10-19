@@ -1,5 +1,5 @@
 # 阶段1: 从 frp 官方镜像获取 frpc
-FROM fatedier/frp:latest AS frp
+FROM fatedier/frpc:v0.71.0 AS frpc
 
 # 阶段2: 构建 Go 后端
 FROM golang:1.22-alpine AS builder
@@ -12,7 +12,7 @@ FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
 
 # 从官方镜像复制 frpc（保证版本正确，避免网络问题）
-COPY --from=frp /usr/local/bin/frpc /usr/local/bin/frpc
+COPY --from=frpc /usr/local/bin/frpc /usr/local/bin/frpc
 
 COPY --from=builder /build/afrp-web /usr/local/bin/afrp-web
 COPY web/ /web/
