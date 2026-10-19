@@ -153,9 +153,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	// 步骤2: 使用 token 获取服务器列表
 	serversResp, err := callServersAPI(req.Site, loginResponse.Data.Token)
 	if err != nil {
+		log.Printf("Failed to call servers API: %v", err)
 		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "get servers failed: " + err.Error()})
 		return
 	}
+	log.Printf("Servers API response: %s", string(serversResp))
 
 	var serversResult struct {
 		Servers []Server `json:"servers"`
@@ -166,6 +168,9 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Parsed %d servers from API", len(serversResult.Servers))
+	for i, srv := range serversResult.Servers {
+		log.Printf("Server[%d]: ID=%d, Name=%s, Addr=%s, Port=%d", i, srv.ID, srv.Name, srv.Addr, srv.Port)
+	}
 
 	// 步骤3: 获取公共配置（OIDC 参数）
 	configResp, err := callConfigAPI(req.Site)
