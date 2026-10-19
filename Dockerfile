@@ -1,5 +1,5 @@
 # 阶段1: 从 frp 官方镜像获取 frpc
-FROM fatedier/frpc:v0.71.1 AS frpc
+FROM fatedier/frpc:latest AS frpc
 
 # 阶段2: 构建 Go 后端
 FROM golang:1.22-alpine AS builder
