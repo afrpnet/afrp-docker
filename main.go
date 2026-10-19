@@ -559,3 +559,31 @@ func escapeToml(s string) string {
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 	return s
 }
+
+func readLastLines(f *os.File, n int) []string {
+	stat, _ := f.Stat()
+	size := stat.Size()
+
+	buf := make([]byte, min(size, 8192))
+	f.ReadAt(buf, max(0, size-8192))
+
+	lines := strings.Split(string(buf), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines
+}
+
+func min(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func max(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
+}
