@@ -59,11 +59,15 @@ type OIDCConfig struct {
 }
 
 type Server struct {
-	ID       int    `json:"id"`
-	Name     string `json:"name"`
-	Addr     string `json:"addr"`
-	Port     int    `json:"port"`
-	Location string `json:"location,omitempty"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Addr        string `json:"addr"`
+	Port        int    `json:"port"`
+	Location    string `json:"location,omitempty"`
+	Group       string `json:"group,omitempty"`
+	Visibility  int    `json:"visibility,omitempty"`
+	Subdomain   string `json:"subdomain,omitempty"`
+	AuthMethod  string `json:"auth_method,omitempty"`
 }
 
 type Tunnel struct {
@@ -159,30 +163,36 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Servers API response: %s", string(serversResp))
 
-	// 尝试多种解析方式
-	var serversResult struct {
-		Servers []Server `json:"servers"`
+	// 官网 API 返回格式: {"ok":true,"data":{"servers":[...],"group_level":2}}
+	var serversResponse struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Servers    []Server `json:"servers"`
+			GroupLevel int      `json:"group_level"`
+		} `json:"data"`
 	}
 	
-	// 先尝试解析为 {"servers": [...]}
-	if err := json.Unmarshal(serversResp, &serversResult); err != nil {
-		log.Printf("Failed to parse as {servers: [...]}, trying direct array: %v", err)
-		
-		// 尝试直接解析为数组 [...]
-		var directServers []Server
-		if err2 := json.Unmarshal(serversResp, &directServers); err2 == nil {
-			log.Printf("Successfully parsed as direct array with %d servers", len(directServers))
-			serversResult.Servers = directServers
-		} else {
-			log.Printf("Failed to parse as direct array too: %v, raw: %s", err2, string(serversResp))
-			json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse servers response failed"})
-			return
-		}
+	if err := json.Unmarshal(serversResp, &serversResponse); err != nil {
+		log.Printf("Failed to parse servers response: %v, raw: %s", err, string(serversResp))
+		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse servers response failed"})
+		return
 	}
 	
-	log.Printf("Parsed %d servers from API", len(serversResult.Servers))
-	for i, srv := range serversResult.Servers {
+	if !serversResponse.OK {
+		log.Printf("Servers API returned ok=false")
+		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "servers API returned error"})
+		return
+	}
+	
+	log.Printf("Parsed %d servers from API (group_level=%d)", len(serversResponse.Data.Servers), serversResponse.Data.GroupLevel)
+	for i, srv := range serversResponse.Data.Servers {
 		log.Printf("Server[%d]: ID=%d, Name=%s, Addr=%s, Port=%d", i, srv.ID, srv.Name, srv.Addr, srv.Port)
+	}
+	
+	serversResult := struct {
+		Servers []Server
+	}{
+		Servers: serversResponse.Data.Servers,
 	}
 
 	// 步骤3: 获取公共配置（OIDC 参数）
