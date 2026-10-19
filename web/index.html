@@ -230,6 +230,9 @@ async function doLogin() {
     servers = data.servers || [];
     renderServers(servers);
     
+    // 保存登录状态到 localStorage
+    saveLoginState(req.identity, req.Site, servers);
+    
     // 加载当前保存的 secret（如果有）
     loadSecret();
     
@@ -276,6 +279,30 @@ function selectServer(idx, el) {
       server_port: selectedServer.port
     })
   });
+  
+  // 保存选中的服务器 ID 到 localStorage
+  const savedConfig = localStorage.getItem('afrp_config');
+  if (savedConfig) {
+    try {
+      const config = JSON.parse(savedConfig);
+      config.selected_server_id = selectedServer.id;
+      config.servers = servers;
+      localStorage.setItem('afrp_config', JSON.stringify(config));
+    } catch (err) {
+      console.error('Failed to save server selection:', err);
+    }
+  }
+}
+
+function saveLoginState(username, site, serverList) {
+  const config = {
+    user: username,
+    auth_oidc_issuer: site,
+    servers: serverList,
+    selected_server_id: serverList.length > 0 ? serverList[0].id : null,
+    login_time: new Date().toISOString()
+  };
+  localStorage.setItem('afrp_config', JSON.stringify(config));
 }
 
 async function loadSecret() {
@@ -605,7 +632,7 @@ async function deleteTunnel(idx) {
 }
 
 // 页面加载时初始化，确保所有弹窗都隐藏
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
   // 强制隐藏粘贴密钥对话框
   const pasteModal = document.getElementById('paste-modal');
   if (pasteModal) {
@@ -616,6 +643,46 @@ window.addEventListener('load', () => {
   const secretInput = document.getElementById('secret-input');
   if (secretInput) {
     secretInput.value = '';
+  }
+  
+  // 检查是否已登录（从 localStorage 恢复）
+  const savedConfig = localStorage.getItem('afrp_config');
+  if (savedConfig) {
+    try {
+      const config = JSON.parse(savedConfig);
+      if (config.user && config.auth_oidc_issuer) {
+        // 已登录，显示配置界面
+        document.getElementById('login-card').classList.add('hidden');
+        document.getElementById('config-card').classList.remove('hidden');
+        document.getElementById('log-card').classList.remove('hidden');
+        
+        // 填充登录信息
+        document.getElementById('identity').value = config.user;
+        
+        // 加载服务器列表（如果有保存的）
+        if (config.servers && config.servers.length > 0) {
+          servers = config.servers;
+          renderServers(servers);
+          
+          // 恢复选中的服务器
+          if (config.selected_server_id) {
+            const idx = servers.findIndex(s => s.id === config.selected_server_id);
+            if (idx >= 0) {
+              selectServer(idx, document.querySelectorAll('.server-item')[idx]);
+            }
+          }
+        }
+        
+        // 加载 secret 和 tunnels
+        loadSecret();
+        loadTunnels();
+        refreshStatus();
+        refreshLog();
+      }
+    } catch (err) {
+      console.error('Failed to restore login state:', err);
+      localStorage.removeItem('afrp_config');
+    }
   }
 });
 </script>
