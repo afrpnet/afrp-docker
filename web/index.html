@@ -35,9 +35,6 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 <!-- 登录卡片 -->
 <div id="login-card" class="card">
   <h2>登录</h2>
-  <label>官网地址
-    <input type="text" id="site" value="https://www.afrp.net" placeholder="https://www.afrp.net">
-  </label>
   <label>账号 / 邮箱
     <input type="text" id="identity" placeholder="用户名或邮箱">
   </label>
@@ -45,6 +42,9 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
     <input type="password" id="password" placeholder="登录密码">
   </label>
   <button onclick="doLogin()" id="login-btn">登录</button>
+  <div style="margin-top: 10px; font-size: 13px; color: #666;">
+    使用 <a href="https://www.afrp.net" target="_blank" style="color: #1976d2;">AFRP 官网</a> 账号登录
+  </div>
   <div id="login-error" class="error"></div>
 </div>
 
@@ -72,7 +72,7 @@ let selectedServer = null;
 let servers = [];
 
 async function doLogin() {
-  const site = document.getElementById('site').value || 'https://www.afrp.net';
+  const site = 'https://www.afrp.net'; // 固定官网地址
   const identity = document.getElementById('identity').value.trim();
   const password = document.getElementById('password').value;
   

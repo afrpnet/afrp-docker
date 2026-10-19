@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -142,32 +143,40 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func callImportAPI(site, identity, password string, rotate bool) ([]byte, error) {
-	importReq := map[string]interface{}{
-		"site":   site,
-		"rotate": rotate,
-	}
+	// 构建登录请求
 	loginReq := map[string]interface{}{
 		"identity": identity,
 		"password": password,
 		"device":   "AFRP Web UI",
 	}
-
-	importData, _ := json.Marshal(importReq)
+	
 	loginData, _ := json.Marshal(loginReq)
-
-	os.WriteFile("/tmp/afrp-import.json", importData, 0644)
-	os.WriteFile("/tmp/afrp-login.json", loginData, 0644)
-
-	cmd := exec.Command("/usr/libexec/afrp/import-account")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("import script failed: %v", err)
+	
+	// 发送 HTTP 请求到官网 API
+	apiURL := site + "/api/v1/auth/login"
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(loginData))
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %v", err)
 	}
-
-	return out.Bytes(), nil
+	req.Header.Set("Content-Type", "application/json")
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %v", err)
+	}
+	
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+	
+	return body, nil
 }
 
 func handleConfig(w http.ResponseWriter, r *http.Request) {
