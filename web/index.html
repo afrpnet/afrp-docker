@@ -78,12 +78,16 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
       <button class="secondary" onclick="showPasteSecret()">粘贴密钥</button>
       <button class="danger" onclick="confirmRotateSecret()">生成新密钥</button>
       <button class="secondary" onclick="clearSecret()">清除</button>
+      <button class="secondary" onclick="loadSecret()" style="margin-left: auto;">🔄 刷新</button>
     </div>
   </div>
   
   <h2 style="margin-top: 20px;">隧道管理</h2>
   <div id="tunnel-list"></div>
-  <button class="secondary" onclick="showAddTunnelModal()" style="margin-top: 10px;">+ 添加隧道</button>
+  <div style="margin-top: 10px; display: flex; gap: 10px;">
+    <button class="secondary" onclick="showAddTunnelModal()">+ 添加隧道</button>
+    <button class="secondary" onclick="loadTunnels()">🔄 刷新</button>
+  </div>
   
   <h2 style="margin-top: 20px;">状态</h2>
   <div id="status" class="status stopped">未知</div>
@@ -243,6 +247,8 @@ async function doLogin() {
     document.getElementById('config-card').classList.remove('hidden');
     document.getElementById('log-card').classList.remove('hidden');
     
+    console.log('Login successful, servers:', data.servers);
+    
     // 显示服务器列表
     servers = data.servers || [];
     renderServers(servers);
@@ -250,14 +256,14 @@ async function doLogin() {
     // 保存登录状态到 localStorage
     saveLoginState(req.identity, req.Site, servers);
     
-    // 加载当前保存的 secret（如果有）
-    loadSecret();
-    
-    // 加载隧道列表
-    loadTunnels();
-    
-    refreshStatus();
-    refreshLog();
+    // 延迟加载 secret 和 tunnels，确保配置已保存
+    setTimeout(() => {
+      console.log('Loading secret and tunnels...');
+      loadSecret();
+      loadTunnels();
+      refreshStatus();
+      refreshLog();
+    }, 500);
   } catch (err) {
     document.getElementById('login-error').textContent = '网络错误：' + err.message;
   } finally {
