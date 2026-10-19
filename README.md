@@ -5,7 +5,7 @@ Docker 版 AFRP 内网穿透客户端，通过浏览器管理 frpc。
 ## 快速开始
 
 ```bash
-docker run -d -p 8080:8080 -v afrp-data:/data darny/afrp
+docker run -d -p 8080:8080 -v afrp-data:/data afrp/afrp
 ```
 
 访问 http://localhost:8080
@@ -29,5 +29,5 @@ go run main.go
 ## 构建
 
 ```bash
-docker build -t darny/afrp .
+docker build -t afrp/afrp .
 ```
