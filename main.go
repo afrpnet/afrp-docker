@@ -152,31 +152,49 @@ func callImportAPI(site, identity, password string, rotate bool) ([]byte, error)
 	
 	loginData, _ := json.Marshal(loginReq)
 	
-	// 发送 HTTP 请求到官网 API
-	apiURL := site + "/api/v1/auth/login"
-	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(loginData))
-	if err != nil {
-		return nil, fmt.Errorf("create request failed: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %v", err)
-	}
-	defer resp.Body.Close()
-	
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response failed: %v", err)
+	// 发送 HTTP 请求到官网 API（尝试多个可能的路径）
+	apiPaths := []string{
+		"/api/auth/login",
+		"/api/v1/auth/login",
+		"/api/login",
 	}
 	
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	var lastErr error
+	for _, path := range apiPaths {
+		apiURL := site + path
+		req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(loginData))
+		if err != nil {
+			lastErr = fmt.Errorf("create request failed: %v", err)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+		
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("request to %s failed: %v", path, err)
+			continue
+		}
+		defer resp.Body.Close()
+		
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("read response failed: %v", err)
+			continue
+		}
+		
+		if resp.StatusCode == 200 {
+			return body, nil
+		} else if resp.StatusCode == 404 {
+			// 继续尝试下一个路径
+			lastErr = fmt.Errorf("path %s not found", path)
+			continue
+		} else {
+			return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		}
 	}
 	
-	return body, nil
+	return nil, fmt.Errorf("all API paths failed, last error: %v", lastErr)
 }
 
 func handleConfig(w http.ResponseWriter, r *http.Request) {
