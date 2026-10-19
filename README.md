@@ -1,5 +1,9 @@
 # AFRP Web UI
 
+<div align="center">
+  <img src="https://raw.githubusercontent.com/afrpnet/afrp-client/main/assets/brand/app_icon_source.png" alt="AFRP Logo" width="128"/>
+</div>
+
 Docker 版 AFRP 内网穿透客户端，通过浏览器管理 frpc。无需安装桌面应用，一键部署即可使用。
 
 ## 特性
