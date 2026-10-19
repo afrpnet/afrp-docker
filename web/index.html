@@ -650,6 +650,8 @@ window.addEventListener('load', async () => {
   if (savedConfig) {
     try {
       const config = JSON.parse(savedConfig);
+      console.log('Restoring login state:', config);
+      
       if (config.user && config.auth_oidc_issuer) {
         // 已登录，显示配置界面
         document.getElementById('login-card').classList.add('hidden');
@@ -660,7 +662,7 @@ window.addEventListener('load', async () => {
         document.getElementById('identity').value = config.user;
         
         // 加载服务器列表（如果有保存的）
-        if (config.servers && config.servers.length > 0) {
+        if (config.servers && Array.isArray(config.servers) && config.servers.length > 0) {
           servers = config.servers;
           renderServers(servers);
           
@@ -668,7 +670,10 @@ window.addEventListener('load', async () => {
           if (config.selected_server_id) {
             const idx = servers.findIndex(s => s.id === config.selected_server_id);
             if (idx >= 0) {
-              selectServer(idx, document.querySelectorAll('.server-item')[idx]);
+              const serverItems = document.querySelectorAll('.server-item');
+              if (serverItems[idx]) {
+                selectServer(idx, serverItems[idx]);
+              }
             }
           }
         }
@@ -678,6 +683,10 @@ window.addEventListener('load', async () => {
         loadTunnels();
         refreshStatus();
         refreshLog();
+        
+        console.log('Login state restored successfully');
+      } else {
+        console.log('Invalid saved config: missing user or auth_oidc_issuer');
       }
     } catch (err) {
       console.error('Failed to restore login state:', err);
