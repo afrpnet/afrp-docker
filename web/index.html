@@ -334,9 +334,19 @@ async function refreshLog() {
   document.getElementById('log').textContent = text || '暂无日志';
 }
 
-// 页面加载时不需要自动加载 secret，等登录后再加载
+// 页面加载时初始化，确保所有弹窗都隐藏
 window.addEventListener('load', () => {
-  // loadSecret() 已移除，改为在 doLogin() 成功后调用
+  // 强制隐藏粘贴密钥对话框
+  const pasteModal = document.getElementById('paste-modal');
+  if (pasteModal) {
+    pasteModal.classList.add('hidden');
+  }
+  
+  // 清空输入框
+  const secretInput = document.getElementById('secret-input');
+  if (secretInput) {
+    secretInput.value = '';
+  }
 });
 </script>
 </body>
