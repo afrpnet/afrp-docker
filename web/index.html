@@ -801,19 +801,24 @@ window.addEventListener('load', async () => {
           if (config.selected_server_id) {
             const idx = servers.findIndex(s => s.id === config.selected_server_id);
             if (idx >= 0) {
-              const serverItems = document.querySelectorAll('.server-item');
-              if (serverItems[idx]) {
-                selectServer(idx, serverItems[idx]);
-              }
+              selectedServer = servers[idx];
+              document.getElementById('server-select').value = idx;
             }
           }
         }
         
-        // 加载 secret 和 tunnels
-        loadSecret();
-        loadTunnels();
-        refreshStatus();
-        refreshLog();
+        // 加载 secret 和 tunnels（并行请求）
+        console.log('Loading data after restore...');
+        Promise.all([
+          loadSecret(),
+          loadTunnels(),
+          refreshStatus(),
+          refreshLog()
+        ]).then(() => {
+          console.log('All restored data loaded successfully');
+        }).catch(err => {
+          console.error('Failed to load some restored data:', err);
+        });
         
         console.log('Login state restored successfully');
       } else {
