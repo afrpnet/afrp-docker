@@ -132,7 +132,7 @@ async function doLogin() {
       return;
     }
     
-    // 保存 secret
+    // 保存 secret（从登录响应中获取）
     currentSecret = data.secret || '';
     
     // 登录成功，显示配置卡片
@@ -144,7 +144,7 @@ async function doLogin() {
     servers = data.servers || [];
     renderServers(servers);
     
-    // 加载 secret
+    // 更新 secret 显示
     updateSecretDisplay();
     
     refreshStatus();
@@ -324,9 +324,9 @@ async function refreshLog() {
   document.getElementById('log').textContent = text || '暂无日志';
 }
 
-// 页面加载时尝试恢复 secret
+// 页面加载时不需要自动加载 secret，等登录后再加载
 window.addEventListener('load', () => {
-  loadSecret();
+  // loadSecret() 已移除，改为在 doLogin() 成功后调用
 });
 </script>
 </body>
