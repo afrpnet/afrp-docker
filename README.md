@@ -6,10 +6,11 @@ Docker 版 AFRP 内网穿透客户端，通过浏览器管理 frpc。无需安�
 
 - 🌐 **纯 Web 界面**：浏览器访问，跨平台兼容
 - 🔐 **OIDC 认证**：复用官网账号登录
--  **一键启动**：Docker 单命令部署
+- ⚡ **一键启动**：Docker 单命令部署
 - 💾 **配置持久化**：Docker volume 保存配置
--  **实时日志**：Web 界面查看 frpc 运行日志
+- 📊 **实时日志**：Web 界面查看 frpc 运行日志
 - 🔄 **自动更新**：CI 自动构建最新镜像
+- ✅ **官方内核**：直接使用 fatedier/frp 官方镜像中的 frpc，保证版本正确性
 
 ## 快速开始
 
@@ -56,10 +57,13 @@ docker run --rm -v afrp-data:/data -v $(pwd):/backup alpine tar xzf /backup/afrp
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `FRPC_VERSION` | frpc 版本 | `0.71.0` |
+| `FRPC_VERSION` | frpc 版本（构建时指定） | `0.71.0` |
+
+**注意**：frpc 二进制直接从 `fatedier/frp:v0.71.0` 官方镜像复制，无需手动下载，保证版本正确性和兼容性。
 
 ```bash
-docker run -d -p 8000:8000 -e FRPC_VERSION=0.70.0 afrp/afrp
+# 如需使用其他版本，修改 Dockerfile 中的 FROM fatedier/frp:vX.Y.Z
+docker build -t afrp/afrp --build-arg FRPC_VERSION=0.70.0 .
 ```
 
 ## API 接口
@@ -98,7 +102,7 @@ docker run -p 8000:8000 afrp/afrp
 afrp-web/
 ├── main.go              # Go 后端（HTTP API + frpc 进程管理）
 ├── web/index.html       # Web UI（原生 HTML/JS）
-├── Dockerfile           # 多阶段构建（含 frpc 二进制）
+├── Dockerfile           # 多阶段构建（从 fatedier/frp 官方镜像复制 frpc）
 └── .github/workflows/   # CI 自动构建推送
 ```
 
