@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AFRP 内网穿透</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+.card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+h1 { color: #333; }
+h2 { color: #666; margin-top: 0; }
+label { display: block; margin-bottom: 10px; font-weight: 500; }
+input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; margin-top: 4px; }
+button { background: #1976d2; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-right: 10px; }
+button:hover { background: #1565c0; }
+button:disabled { background: #ccc; }
+button.danger { background: #d32f2f; }
+button.danger:hover { background: #c62828; }
+.status { padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+.status.running { background: #e8f5e9; color: #2e7d32; }
+.status.stopped { background: #ffebee; color: #c62828; }
+pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; overflow-x: auto; max-height: 400px; overflow-y: auto; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>AFRP 内网穿透</h1>
+
+<div class="card">
+  <h2>状态</h2>
+  <div id="status" class="status stopped">未知</div>
+  <button onclick="startFrpc()">启动</button>
+  <button onclick="stopFrpc()" class="danger">停止</button>
+  <button onclick="refreshStatus()">刷新</button>
+</div>
+
+<div class="card">
+  <h2>配置</h2>
+  <label>启用
+    <select id="enabled">
+      <option value="true">是</option>
+      <option value="false">否</option>
+    </select>
+  </label>
+  <label>服务器地址
+    <input type="text" id="server_addr" placeholder="如：frp.afrp.net">
+  </label>
+  <label>服务器端口
+    <input type="number" id="server_port" value="7000">
+  </label>
+  <label>用户名
+    <input type="text" id="user" placeholder="官网用户名">
+  </label>
+  <label>认证方式
+    <input type="text" id="auth_method" value="oidc" readonly>
+  </label>
+  <label>OIDC Issuer
+    <input type="text" id="auth_oidc_issuer" placeholder="https://www.afrp.net">
+  </label>
+  <label>OIDC Audience
+    <input type="text" id="auth_oidc_audience" placeholder="afrp.net">
+  </label>
+  <label>OIDC Scope
+    <input type="text" id="auth_oidc_scope" placeholder="afrp">
+  </label>
+  <label>OIDC Token Endpoint
+    <input type="text" id="auth_oidc_token_endpoint" placeholder="https://www.afrp.net/oidc/token.php">
+  </label>
+  <button onclick="saveConfig()">保存配置</button>
+</div>
+
+<div class="card">
+  <h2>日志</h2>
+  <pre id="log">暂无日志</pre>
+  <button onclick="refreshLog()">刷新日志</button>
+</div>
+
+<script>
+async function loadConfig() {
+  const res = await fetch('/api/config');
+  const cfg = await res.json();
+  document.getElementById('enabled').value = cfg.enabled ? 'true' : 'false';
+  document.getElementById('server_addr').value = cfg.server_addr || '';
+  document.getElementById('server_port').value = cfg.server_port || 7000;
+  document.getElementById('user').value = cfg.user || '';
+  document.getElementById('auth_method').value = cfg.auth_method || 'oidc';
+  document.getElementById('auth_oidc_issuer').value = cfg.auth_oidc_issuer || '';
+  document.getElementById('auth_oidc_audience').value = cfg.auth_oidc_audience || '';
+  document.getElementById('auth_oidc_scope').value = cfg.auth_oidc_scope || '';
+  document.getElementById('auth_oidc_token_endpoint').value = cfg.auth_oidc_token_endpoint || '';
+}
+
+async function saveConfig() {
+  const cfg = {
+    enabled: document.getElementById('enabled').value === 'true',
+    server_addr: document.getElementById('server_addr').value,
+    server_port: parseInt(document.getElementById('server_port').value),
+    user: document.getElementById('user').value,
+    auth_method: 'oidc',
+    auth_oidc_issuer: document.getElementById('auth_oidc_issuer').value,
+    auth_oidc_audience: document.getElementById('auth_oidc_audience').value,
+    auth_oidc_scope: document.getElementById('auth_oidc_scope').value,
+    auth_oidc_token_endpoint: document.getElementById('auth_oidc_token_endpoint').value,
+  };
+  await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cfg) });
+  alert('配置已保存');
+}
+
+async function refreshStatus() {
+  const res = await fetch('/api/status');
+  const data = await res.json();
+  const el = document.getElementById('status');
+  if (data.running) {
+    el.className = 'status running';
+    el.textContent = '运行中';
+  } else {
+    el.className = 'status stopped';
+    el.textContent = '已停止';
+  }
+}
+
+async function startFrpc() {
+  await fetch('/api/start', { method: 'POST' });
+  refreshStatus();
+  refreshLog();
+}
+
+async function stopFrpc() {
+  await fetch('/api/stop', { method: 'POST' });
+  refreshStatus();
+  refreshLog();
+}
+
+async function refreshLog() {
+  const res = await fetch('/api/log');
+  const text = await res.text();
+  document.getElementById('log').textContent = text || '暂无日志';
+}
+
+loadConfig();
+refreshStatus();
+refreshLog();
+</script>
+</body>
+</html>
