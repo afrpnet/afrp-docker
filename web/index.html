@@ -17,6 +17,8 @@ button:hover { background: #1565c0; }
 button:disabled { background: #ccc; }
 button.danger { background: #d32f2f; }
 button.danger:hover { background: #c62828; }
+button.secondary { background: #fff; color: #1976d2; border: 1px solid #1976d2; }
+button.secondary:hover { background: #e3f2fd; }
 .status { padding: 10px; border-radius: 4px; margin-bottom: 10px; }
 .status.running { background: #e8f5e9; color: #2e7d32; }
 .status.stopped { background: #ffebee; color: #c62828; }
@@ -28,6 +30,12 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 .server-item.selected { background: #e3f2fd; border-color: #1976d2; }
 .error { color: #c62828; margin-top: 10px; }
 .success { color: #2e7d32; margin-top: 10px; }
+.secret-box { background: #f5f5f5; padding: 12px; border-radius: 4px; font-family: monospace; word-break: break-all; margin: 10px 0; }
+.secret-actions { margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal { background: white; padding: 24px; border-radius: 8px; max-width: 500px; width: 90%; }
+.modal h3 { margin-top: 0; }
+.modal-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
 </style>
 </head>
 <body>
@@ -54,6 +62,16 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
   <h2>服务器选择</h2>
   <div id="server-list" class="server-list"></div>
   
+  <h2 style="margin-top: 20px;">Client Secret</h2>
+  <div id="secret-display">
+    <div class="secret-box" id="secret-value">加载中...</div>
+    <div class="secret-actions">
+      <button class="secondary" onclick="showPasteSecret()">粘贴密钥</button>
+      <button class="danger" onclick="confirmRotateSecret()">生成新密钥</button>
+      <button class="secondary" onclick="clearSecret()">清除</button>
+    </div>
+  </div>
+  
   <h2 style="margin-top: 20px;">状态</h2>
   <div id="status" class="status stopped">未知</div>
   <button onclick="startFrpc()">启动</button>
@@ -68,9 +86,25 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
   <button onclick="refreshLog()">刷新日志</button>
 </div>
 
+<!-- 粘贴密钥对话框 -->
+<div id="paste-modal" class="modal-overlay hidden" onclick="closePasteModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>粘贴 Client Secret</h3>
+    <p style="font-size: 13px; color: #666;">在网页端「连接说明」处可查看或生成密钥，粘贴到此处即可。</p>
+    <label>密钥
+      <textarea id="secret-input" rows="3" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace;" placeholder="输入或粘贴 Client Secret"></textarea>
+    </label>
+    <div class="modal-actions">
+      <button class="secondary" onclick="closePasteModal()">取消</button>
+      <button onclick="savePastedSecret()">保存</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let selectedServer = null;
 let servers = [];
+let currentSecret = '';
 
 async function doLogin() {
   const site = 'https://www.afrp.net'; // 固定官网地址
@@ -98,6 +132,9 @@ async function doLogin() {
       return;
     }
     
+    // 保存 secret
+    currentSecret = data.secret || '';
+    
     // 登录成功，显示配置卡片
     document.getElementById('login-card').classList.add('hidden');
     document.getElementById('config-card').classList.remove('hidden');
@@ -106,6 +143,9 @@ async function doLogin() {
     // 显示服务器列表
     servers = data.servers || [];
     renderServers(servers);
+    
+    // 加载 secret
+    updateSecretDisplay();
     
     refreshStatus();
     refreshLog();
@@ -149,6 +189,110 @@ function selectServer(idx, el) {
   });
 }
 
+async function loadSecret() {
+  try {
+    const res = await fetch('/api/secret');
+    const data = await res.json();
+    currentSecret = data.secret || '';
+    updateSecretDisplay();
+  } catch (err) {
+    console.error('Failed to load secret:', err);
+  }
+}
+
+function updateSecretDisplay() {
+  const el = document.getElementById('secret-value');
+  if (currentSecret) {
+    el.textContent = currentSecret;
+  } else {
+    el.textContent = '未设置（请粘贴或生成新密钥）';
+    el.style.color = '#999';
+  }
+}
+
+function showPasteSecret() {
+  document.getElementById('paste-modal').classList.remove('hidden');
+  document.getElementById('secret-input').focus();
+}
+
+function closePasteModal(event) {
+  if (!event || event.target === document.getElementById('paste-modal')) {
+    document.getElementById('paste-modal').classList.add('hidden');
+    document.getElementById('secret-input').value = '';
+  }
+}
+
+async function savePastedSecret() {
+  const secret = document.getElementById('secret-input').value.trim();
+  if (!secret) {
+    alert('请输入密钥');
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/secret', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ secret, action: 'save' })
+    });
+    const data = await res.json();
+    
+    if (data.ok) {
+      currentSecret = secret;
+      updateSecretDisplay();
+      closePasteModal();
+      alert('密钥已保存');
+    }
+  } catch (err) {
+    alert('保存失败：' + err.message);
+  }
+}
+
+async function confirmRotateSecret() {
+  if (!confirm('旧密钥将立即失效，所有使用旧密钥的客户端会断开。确定生成新密钥吗？')) {
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/secret', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ secret: '', action: 'rotate' })
+    });
+    const data = await res.json();
+    
+    if (data.ok) {
+      await loadSecret();
+      alert('新密钥已生成（TODO: 实现官网 API 调用）');
+    }
+  } catch (err) {
+    alert('生成失败：' + err.message);
+  }
+}
+
+async function clearSecret() {
+  if (!confirm('确定清除本机存储的密钥吗？')) {
+    return;
+  }
+  
+  try {
+    const res = await fetch('/api/secret', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ secret: '', action: 'save' })
+    });
+    const data = await res.json();
+    
+    if (data.ok) {
+      currentSecret = '';
+      updateSecretDisplay();
+      alert('密钥已清除');
+    }
+  } catch (err) {
+    alert('清除失败：' + err.message);
+  }
+}
+
 async function refreshStatus() {
   const res = await fetch('/api/status');
   const data = await res.json();
@@ -179,6 +323,11 @@ async function refreshLog() {
   const text = await res.text();
   document.getElementById('log').textContent = text || '暂无日志';
 }
+
+// 页面加载时尝试恢复 secret
+window.addEventListener('load', () => {
+  loadSecret();
+});
 </script>
 </body>
 </html>

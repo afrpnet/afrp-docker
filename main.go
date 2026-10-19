@@ -33,6 +33,7 @@ type Config struct {
 	AuthOIDCAudience    string `json:"auth_oidc_audience"`
 	AuthOIDCScope       string `json:"auth_oidc_scope"`
 	AuthOIDCTokenEndpoint string `json:"auth_oidc_token_endpoint"`
+	ClientSecret string `json:"client_secret,omitempty"`
 }
 
 type LoginRequest struct {
@@ -74,6 +75,7 @@ func main() {
 
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/config", handleConfig)
+	http.HandleFunc("/api/secret", handleSecret)
 	http.HandleFunc("/api/start", handleStart)
 	http.HandleFunc("/api/stop", handleStop)
 	http.HandleFunc("/api/status", handleStatus)
@@ -150,6 +152,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	cfg.User = req.Identity
 	cfg.AuthMethod = "oidc"
 	cfg.AuthOIDCIssuer = req.Site
+	cfg.ClientSecret = loginResult.Token
 	if len(result.Servers) > 0 {
 		cfg.ServerAddr = result.Servers[0].Addr
 		cfg.ServerPort = result.Servers[0].Port
@@ -232,6 +235,33 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		saveConfig(cfg)
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}
+}
+
+func handleSecret(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		cfg := loadConfig()
+		json.NewEncoder(w).Encode(map[string]string{"secret": cfg.ClientSecret})
+	case "POST":
+		var req struct {
+			Secret string `json:"secret"`
+			Action string `json:"action"` // "save" or "rotate"
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		
+		cfg := loadConfig()
+		if req.Action == "rotate" {
+			// TODO: 调用官网 API 生成新密钥
+			req.Secret = "" // 临时占位
+		}
+		
+		cfg.ClientSecret = req.Secret
 		saveConfig(cfg)
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}
@@ -337,8 +367,10 @@ auth_oidc_issuer = %s
 auth_oidc_audience = %s
 auth_oidc_scope = %s
 auth_oidc_token_endpoint = %s
+auth_oidc_client_secret = %s
 `, cfg.ServerAddr, cfg.ServerPort, cfg.User, cfg.AuthMethod,
-		cfg.AuthOIDCIssuer, cfg.AuthOIDCAudience, cfg.AuthOIDCScope, cfg.AuthOIDCTokenEndpoint)
+		cfg.AuthOIDCIssuer, cfg.AuthOIDCAudience, cfg.AuthOIDCScope, cfg.AuthOIDCTokenEndpoint,
+		cfg.ClientSecret)
 
 	os.WriteFile("/data/config/frpc.ini", []byte(ini), 0644)
 }
