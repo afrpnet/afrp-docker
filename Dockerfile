@@ -12,7 +12,14 @@ FROM alpine:3.19
 RUN apk add --no-cache ca-certificates
 
 # 从官方镜像复制 frpc（保证版本正确，避免网络问题）
-COPY --from=frpc /usr/local/bin/frpc /usr/local/bin/frpc
+# 先复制到临时位置，然后查找并移动到正确位置
+COPY --from=frpc / /tmp/frpc-image/
+RUN FRPC_PATH=$(find /tmp/frpc-image -name "frpc" -type f 2>/dev/null | head -1) && \
+    if [ -n "$FRPC_PATH" ]; then \
+      cp "$FRPC_PATH" /usr/local/bin/frpc && chmod +x /usr/local/bin/frpc && rm -rf /tmp/frpc-image; \
+    else \
+      echo "frpc not found in image"; exit 1; \
+    fi
 
 COPY --from=builder /build/afrp-web /usr/local/bin/afrp-web
 COPY web/ /web/
