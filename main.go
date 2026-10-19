@@ -81,7 +81,15 @@ func main() {
 	http.HandleFunc("/api/stop", handleStop)
 	http.HandleFunc("/api/status", handleStatus)
 	http.HandleFunc("/api/log", handleLog)
-	http.Handle("/", http.FileServer(http.Dir("/web")))
+	
+	// 使用相对路径适配 Windows/Linux
+	webDir := "./web"
+	if _, err := os.Stat(webDir); os.IsNotExist(err) {
+		// 如果相对路径不存在，尝试 Docker 容器内的路径
+		webDir = "/web"
+	}
+	
+	http.Handle("/", http.FileServer(http.Dir(webDir)))
 
 	log.Println("AFRP Web UI starting on :8000")
 	log.Fatal(http.ListenAndServe(":8000", nil))
