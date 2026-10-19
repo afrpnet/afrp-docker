@@ -516,6 +516,11 @@ function renderTunnels() {
     return;
   }
   
+  // 获取当前选中服务器的 subdomain 基础域
+  const serverSubdomain = selectedServer && selectedServer.subdomain 
+    ? selectedServer.subdomain.replace(/^\*\./, '') 
+    : 'afrp.net';
+  
   tunnels.forEach((t, idx) => {
     const div = document.createElement('div');
     div.className = 'tunnel-item';
@@ -525,7 +530,7 @@ function renderTunnels() {
       if (t.customDomain) {
         details += ` → ${t.customDomain}`;
       } else if (t.subdomain) {
-        details += ` → ${t.subdomain}.afrp.net`;
+        details += ` → ${t.subdomain}.${serverSubdomain}`;
       }
     } else if (t.type === 'stcp' || t.type === 'sudp' || t.type === 'xtcp') {
       details += t.secretKey ? ' → 密钥已设置' : ' → 无密钥';
