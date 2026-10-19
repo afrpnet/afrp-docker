@@ -189,11 +189,19 @@ function selectServer(idx, el) {
 async function loadSecret() {
   try {
     const res = await fetch('/api/secret');
+    if (!res.ok) {
+      // 未登录或 API 错误，不显示 secret
+      currentSecret = '';
+      updateSecretDisplay();
+      return;
+    }
     const data = await res.json();
     currentSecret = data.secret || '';
     updateSecretDisplay();
   } catch (err) {
     console.error('Failed to load secret:', err);
+    currentSecret = '';
+    updateSecretDisplay();
   }
 }
 
