@@ -262,8 +262,13 @@ async function confirmRotateSecret() {
     const data = await res.json();
     
     if (data.ok) {
-      await loadSecret();
-      alert('新密钥已生成（TODO: 实现官网 API 调用）');
+      currentSecret = data.secret || '';
+      updateSecretDisplay();
+      
+      // 显示新密钥供用户保存
+      alert('新密钥已生成并保存：\n\n' + currentSecret + '\n\n请妥善保存，旧密钥已失效。');
+    } else {
+      alert('生成失败：' + (data.error || '未知错误'));
     }
   } catch (err) {
     alert('生成失败：' + err.message);

@@ -257,14 +257,69 @@ func handleSecret(w http.ResponseWriter, r *http.Request) {
 		
 		cfg := loadConfig()
 		if req.Action == "rotate" {
-			// TODO: 调用官网 API 生成新密钥
-			req.Secret = "" // 临时占位
+			// 调用官网 API 生成新密钥
+			newSecret, err := callRotateSecretAPI(cfg.AuthOIDCIssuer, cfg.ClientSecret)
+			if err != nil {
+				json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
+				return
+			}
+			req.Secret = newSecret
 		}
 		
 		cfg.ClientSecret = req.Secret
 		saveConfig(cfg)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "secret": req.Secret})
 	}
+}
+
+func callRotateSecretAPI(site, currentSecret string) (string, error) {
+	apiURL := site + "/api/secret.php"
+	
+	reqBody := map[string]interface{}{}
+	bodyData, _ := json.Marshal(reqBody)
+	
+	req, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(bodyData))
+	if err != nil {
+		return "", fmt.Errorf("create request failed: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if currentSecret != "" {
+		req.Header.Set("Authorization", "Bearer "+currentSecret)
+	}
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response failed: %v", err)
+	}
+	
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+	
+	var result struct {
+		OK   bool   `json:"ok"`
+		Data struct {
+			ClientSecret string `json:"client_secret"`
+		} `json:"data"`
+		Error string `json:"error,omitempty"`
+	}
+	
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("parse response failed: %v", err)
+	}
+	
+	if !result.OK {
+		return "", fmt.Errorf("rotate failed: %s", result.Error)
+	}
+	
+	return result.Data.ClientSecret, nil
 }
 
 func handleStart(w http.ResponseWriter, r *http.Request) {
