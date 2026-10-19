@@ -262,14 +262,18 @@ async function doLogin() {
     // 保存登录状态到 localStorage
     saveLoginState(req.identity, req.Site, servers);
     
-    // 延迟加载 secret 和 tunnels，确保配置已保存
-    setTimeout(() => {
-      console.log('Loading secret and tunnels...');
-      loadSecret();
-      loadTunnels();
-      refreshStatus();
-      refreshLog();
-    }, 500);
+    // 立即加载所有数据（并行请求）
+    console.log('Loading all data in parallel...');
+    Promise.all([
+      loadSecret(),
+      loadTunnels(),
+      refreshStatus(),
+      refreshLog()
+    ]).then(() => {
+      console.log('All data loaded successfully');
+    }).catch(err => {
+      console.error('Failed to load some data:', err);
+    });
   } catch (err) {
     document.getElementById('login-error').textContent = '网络错误：' + err.message;
   } finally {
