@@ -161,9 +161,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		Servers []Server `json:"servers"`
 	}
 	if err := json.Unmarshal(serversResp, &serversResult); err != nil {
+		log.Printf("Failed to parse servers response: %v, raw: %s", err, string(serversResp))
 		json.NewEncoder(w).Encode(LoginResponse{OK: false, Error: "parse servers response failed"})
 		return
 	}
+	log.Printf("Parsed %d servers from API", len(serversResult.Servers))
 
 	// 步骤3: 获取公共配置（OIDC 参数）
 	configResp, err := callConfigAPI(req.Site)
