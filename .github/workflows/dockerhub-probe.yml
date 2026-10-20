@@ -1,0 +1,27 @@
+name: Probe Docker Hub Logo Field
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe
+        env:
+          DU: ${{ secrets.DOCKER_USERNAME }}
+          DP: ${{ secrets.DOCKER_PASSWORD }}
+          LOGO: https://raw.githubusercontent.com/afrpnet/afrp-docker/master/logo.png
+        run: |
+          TOKEN=$(curl -s -X POST https://hub.docker.com/v2/users/login/ \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$DU\",\"password\":\"$DP\"}" | jq -r .token)
+          echo "=== PATCH logo_url + short_description ==="
+          curl -s -X PATCH https://hub.docker.com/v2/repositories/afrp/afrp/ \
+            -H "Authorization: JWT $TOKEN" -H 'Content-Type: application/json' \
+            -d "{\"logo_url\":\"$LOGO\",\"short_description\":\"Docker 版 AFRP 内网穿透客户端：浏览器管理 frpc，一键部署\"}" \
+            | jq '{description, short_description, logo_url, logo, source}'
+          echo "=== GET repo (public) ==="
+          curl -s https://hub.docker.com/v2/repositories/afrp/afrp/ | jq '{description, short_description, logo_url, logo}'
+          echo "=== GET repo (auth) ==="
+          curl -s -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/repositories/afrp/afrp/ | jq '{description, short_description, logo_url, logo}'
