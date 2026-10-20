@@ -22,10 +22,14 @@ docker run -d \
   --name afrp-web \
   --restart unless-stopped \
   -p 8000:8000 \
+  -v afrp-data:/data \
   afrp/afrp:latest
 
 echo "4. 检查容器状态..."
 docker ps | grep afrp-web
+
+echo "5. 确认配置卷已挂载..."
+docker inspect afrp-web --format '{{json .Mounts}}'
 
 echo ""
 echo "=== 更新完成 ==="
