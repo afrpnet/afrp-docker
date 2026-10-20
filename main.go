@@ -35,8 +35,45 @@ type Config struct {
 	AuthOIDCTokenEndpoint string `json:"auth_oidc_token_endpoint"`
 	ClientSecret string   `json:"client_secret,omitempty"`
 	LoginToken   string   `json:"login_token,omitempty"` // 临时 token，用于调用官网 API
+	AccountSecrets map[string]string `json:"account_secrets,omitempty"` // 账号 -> Client Secret，切换账号时按账号取用
 	UserInfo     map[string]interface{} `json:"user_info,omitempty"` // 用户信息（头像、用户名、邮箱、角色等）
 	Tunnels      []Tunnel `json:"tunnels,omitempty"`
+}
+
+// 账号密钥的存储键：官网账号名全局唯一，统一小写去空格
+func accountKey(identity string) string {
+	return strings.ToLower(strings.TrimSpace(identity))
+}
+
+// 记录账号对应的 Client Secret
+func (c *Config) setAccountSecret(identity, secret string) {
+	if accountKey(identity) == "" {
+		return
+	}
+	if c.AccountSecrets == nil {
+		c.AccountSecrets = map[string]string{}
+	}
+	c.AccountSecrets[accountKey(identity)] = secret
+}
+
+// 读取账号对应的 Client Secret
+func (c *Config) getAccountSecret(identity string) string {
+	if c.AccountSecrets == nil {
+		return ""
+	}
+	return c.AccountSecrets[accountKey(identity)]
+}
+
+// 当前登录账号的 Client Secret
+func (c *Config) currentSecret() string {
+	if s := c.getAccountSecret(c.User); s != "" {
+		return s
+	}
+	if len(c.AccountSecrets) == 0 {
+		// 旧版配置只有单个全局密钥，归属于当前账号
+		return c.ClientSecret
+	}
+	return ""
 }
 
 type LoginRequest struct {
@@ -264,18 +301,52 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		OK:      true,
 		Servers: serversResult.Servers,
 		Config:  oidcConfig,
-		Secret:  clientSecret,
 	}
-	log.Printf("Building login response: OK=%v, Servers count=%d, Secret=%v", result.OK, len(result.Servers), clientSecret != "")
+	log.Printf("Building login response: OK=%v, Servers count=%d", result.OK, len(result.Servers))
 
 	// 保存配置（包含 OIDC 参数和 Client Secret）
 	cfg := loadConfig()
+	prevUser := cfg.User
+	prevSecret := cfg.ClientSecret
+
+	// 账号标识统一用官网用户名（frpc 的 clientID 即用户名），用邮箱登录的也要归一
+	username := req.Identity
+	if u, ok := userInfo["username"].(string); ok && u != "" {
+		username = u
+	} else if u, ok := loginResponse.Data.User["username"].(string); ok && u != "" {
+		username = u
+	}
+
+	// 切换账号时停止旧的 frpc，避免它继续用上一个账号的密钥运行
+	if prevUser != "" && prevUser != username {
+		frpcMu.Lock()
+		stopFrpc()
+		frpcMu.Unlock()
+	}
+
 	cfg.Enabled = true
-	cfg.User = req.Identity
+	cfg.User = username
 	cfg.AuthMethod = "oidc"
 	cfg.AuthOIDCIssuer = req.Site
 	cfg.LoginToken = loginResponse.Data.Token // 保存登录 token 用于后续 API 调用
-	cfg.ClientSecret = clientSecret // 保存从官网获取的 Client Secret
+
+	// Client Secret 按账号取用：官网 API 不返回明文时回退到该账号已保存的密钥
+	// 旧版配置只有一个全局密钥，先归档到它所属的账号，避免切换账号后丢失
+	if prevSecret != "" && prevUser != "" {
+		cfg.setAccountSecret(prevUser, prevSecret)
+		if prevUser == req.Identity && prevUser != username {
+			// 旧配置按登录名（邮箱）记录，迁移到用户名
+			cfg.setAccountSecret(username, prevSecret)
+		}
+	}
+	secret := clientSecret
+	if secret == "" {
+		secret = cfg.getAccountSecret(username)
+	}
+	cfg.ClientSecret = secret
+	cfg.setAccountSecret(username, secret)
+	result.Secret = secret
+	log.Printf("Client Secret for %s: %v", username, secret != "")
 	if userInfo != nil {
 		cfg.UserInfo = userInfo // 保存完整用户信息（包括会员信息）
 	} else {
@@ -302,6 +373,9 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		cfg.ServerPort = result.Servers[0].Port
 	}
 	saveConfig(cfg)
+
+	// 用当前账号的密钥重新生成 frpc 配置，切换账号后直接可用
+	writeFrpcConfig(cfg)
 
 	log.Printf("Sending login response to client")
 	json.NewEncoder(w).Encode(result)
@@ -528,6 +602,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if secret, ok := updates["client_secret"].(string); ok {
 			cfg.ClientSecret = secret
+			cfg.setAccountSecret(cfg.User, secret)
 		}
 		if enabled, ok := updates["enabled"].(bool); ok {
 			cfg.Enabled = enabled
@@ -535,10 +610,13 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		
 		saveConfig(cfg)
 		
-		// 如果更新了服务器地址，重新生成 frpc 配置
+		// 重新生成 frpc 配置（服务器或密钥变化）
 		if _, hasAddr := updates["server_addr"]; hasAddr {
 			writeFrpcConfig(cfg)
 			log.Printf("Regenerated frpc config after server change")
+		} else if _, hasSecret := updates["client_secret"]; hasSecret {
+			writeFrpcConfig(cfg)
+			log.Printf("Regenerated frpc config after secret change")
 		}
 		
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -549,7 +627,7 @@ func handleSecret(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		cfg := loadConfig()
-		json.NewEncoder(w).Encode(map[string]string{"secret": cfg.ClientSecret})
+		json.NewEncoder(w).Encode(map[string]string{"secret": cfg.currentSecret()})
 	case "POST":
 		var req struct {
 			Secret string `json:"secret"`
@@ -572,7 +650,10 @@ func handleSecret(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		cfg.ClientSecret = req.Secret
+		cfg.setAccountSecret(cfg.User, req.Secret)
 		saveConfig(cfg)
+		// 同步到 frpc 配置，避免启动时使用旧密钥
+		writeFrpcConfig(cfg)
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "secret": req.Secret})
 	}
 }
@@ -708,6 +789,10 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "not enabled"})
 		return
 	}
+	if cfg.currentSecret() == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "尚未设置服务器密钥，请先设置或生成 Client Secret"})
+		return
+	}
 
 	writeFrpcConfig(cfg)
 
@@ -717,19 +802,23 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	frpcCmd = exec.Command(frpcBinary, "-c", "/data/config/frpc.toml")
-	frpcCmd.Stdout = logF
-	frpcCmd.Stderr = logF
+	cmd := exec.Command(frpcBinary, "-c", "/data/config/frpc.toml")
+	cmd.Stdout = logF
+	cmd.Stderr = logF
 
-	if err := frpcCmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	frpcCmd = cmd
 
 	go func() {
-		frpcCmd.Wait()
+		cmd.Wait()
 		frpcMu.Lock()
-		frpcCmd = nil
+		// 只有当前进程仍是这个时才清理，避免误清掉重新启动的实例
+		if frpcCmd == cmd {
+			frpcCmd = nil
+		}
 		frpcMu.Unlock()
 	}()
 
@@ -740,12 +829,17 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 	frpcMu.Lock()
 	defer frpcMu.Unlock()
 
+	stopFrpc()
+
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// 停止正在运行的 frpc 进程（调用方需持有 frpcMu 锁）
+func stopFrpc() {
 	if frpcCmd != nil && frpcCmd.Process != nil {
 		frpcCmd.Process.Kill()
 		frpcCmd = nil
 	}
-
-	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -785,6 +879,8 @@ func saveConfig(cfg Config) {
 }
 
 func writeFrpcConfig(cfg Config) {
+	// 使用当前账号的密钥，避免切号后用错账号
+	secret := cfg.currentSecret()
 	toml := fmt.Sprintf(`# 由 AFRP Web UI 自动生成，请勿手动修改（修改会在下次连接时覆盖）
 serverAddr = "%s"
 serverPort = %d
@@ -797,7 +893,7 @@ auth.oidc.clientSecret = "%s"
 auth.oidc.tokenEndpointURL = "%s"
 auth.oidc.audience = "%s"
 auth.oidc.scope = "%s"
-`, cfg.ServerAddr, cfg.ServerPort, cfg.User, cfg.User, cfg.ClientSecret,
+`, cfg.ServerAddr, cfg.ServerPort, cfg.User, cfg.User, secret,
 		cfg.AuthOIDCTokenEndpoint, cfg.AuthOIDCAudience, cfg.AuthOIDCScope)
 
 	// 添加隧道配置
