@@ -114,15 +114,17 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
     <button class="btn-logout" onclick="logout()">退出登录</button>
   </div>
 
-  <!-- 用户信息卡片 -->
+  <!-- 账号卡片 -->
   <div id="user-info-card" class="card">
-    <div class="user-info">
-      <div class="user-avatar" id="user-avatar">?</div>
-      <div class="user-details">
-        <div class="user-name" id="user-name">加载中...</div>
-        <div class="user-email" id="user-email"></div>
-        <span class="user-role hidden" id="user-role"></span>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 18px;"></span>
+        <strong>账号</strong>
       </div>
+      <button class="secondary" onclick="loadUserInfo()" style="padding: 6px 12px; font-size: 12px;">&#x1F504; 刷新</button>
+    </div>
+    <div id="account-list">
+      <div style="color: #999; font-size: 13px;">加载中...</div>
     </div>
   </div>
 
@@ -376,41 +378,40 @@ async function loadUserInfo() {
     const res = await fetch('/api/user');
     const data = await res.json();
 
+    const accountList = document.getElementById('account-list');
+
     if (!data.ok || !data.data) {
-      document.getElementById('user-name').textContent = currentIdentity || '未知用户';
+      accountList.innerHTML = '<div style="color: #999; font-size: 13px;">未登录</div>';
       return;
     }
 
     const info = data.data;
     const username = info.username || info.name || info.user || currentIdentity || '未知用户';
     const email = info.email || info.mail || '';
-    const avatar = info.avatar || info.avatar_url || info.photo || '';
-    const role = info.role || info.role_name || info.group || '';
+    const authEnabled = info.auth_enabled || info.oidc_enabled || false;
+    const secretSet = info.secret_set || (info.client_secret && info.client_secret.toString().trim() !== '');
 
-    const avatarEl = document.getElementById('user-avatar');
-    if (avatar) {
-      avatarEl.innerHTML = `<img src="${escapeHtml(avatar)}" alt="">`;
-    } else {
-      avatarEl.textContent = username[0].toUpperCase();
-    }
+    let html = '';
+    html += _accountRow('用户名', username);
+    html += _accountRow('邮箱', email || '未绑定');
+    html += _accountRow('OIDC 认证', authEnabled ? '已开启' : '未开启（联系管理员）');
+    html += _accountRow('服务器密钥', secretSet ? '已设置' : '未设置');
 
-    document.getElementById('user-name').textContent = username;
-    document.getElementById('user-email').textContent = email;
-
-    const roleEl = document.getElementById('user-role');
-    if (role) {
-      roleEl.textContent = role;
-      roleEl.classList.remove('hidden');
-    } else {
-      roleEl.classList.add('hidden');
-    }
+    accountList.innerHTML = html;
 
     // 更新已保存账号列表中的用户信息
-    saveAccountToList(currentIdentity, currentPassword, currentSite, { username, avatar });
+    saveAccountToList(currentIdentity, currentPassword, currentSite, { username });
   } catch (err) {
     console.error('Failed to load user info:', err);
-    document.getElementById('user-name').textContent = currentIdentity || '未知用户';
+    document.getElementById('account-list').innerHTML = '<div style="color: #c62828; font-size: 13px;">加载失败</div>';
   }
+}
+
+function _accountRow(label, value) {
+  return `<div style="display: flex; padding: 6px 0; font-size: 14px;">
+    <span style="width: 92px; color: #666; flex-shrink: 0;">${label}</span>
+    <span style="flex: 1;">${escapeHtml(value)}</span>
+  </div>`;
 }
 
 // ==================== 会员模块 ====================

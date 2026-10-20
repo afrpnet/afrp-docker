@@ -293,7 +293,14 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "not logged in"})
 		return
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "data": cfg.UserInfo})
+	// 添加 OIDC 认证状态和服务器密钥状态
+	userInfo := make(map[string]interface{})
+	for k, v := range cfg.UserInfo {
+		userInfo[k] = v
+	}
+	userInfo["auth_enabled"] = cfg.AuthMethod == "oidc" && cfg.ClientSecret != ""
+	userInfo["secret_set"] = cfg.ClientSecret != ""
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "data": userInfo})
 }
 
 func callLoginAPI(site, identity, password string) ([]byte, error) {
