@@ -220,7 +220,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := json.Unmarshal(userResp, &userResult); err == nil && userResult.OK {
 			clientSecret = userResult.Data.ClientSecret
-			log.Printf("Got client secret from API: %s...", clientSecret[:min(10, len(clientSecret))])
+			if len(clientSecret) > 10 {
+				log.Printf("Got client secret from API: %s...", clientSecret[:10])
+			} else {
+				log.Printf("Got client secret from API: %s", clientSecret)
+			}
 		}
 	}
 
