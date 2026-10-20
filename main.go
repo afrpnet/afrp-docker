@@ -249,6 +249,13 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 			if memberLabel, ok := userResult.Data["member_label"]; ok {
 				userInfo["member_label"] = memberLabel
 			}
+			// 保存 OIDC 认证状态和服务器密钥状态（从 API 获取）
+			if authEnabled, ok := userResult.Data["auth_enabled"]; ok {
+				userInfo["auth_enabled"] = authEnabled
+			}
+			if secretSet, ok := userResult.Data["secret_set"]; ok {
+				userInfo["secret_set"] = secretSet
+			}
 		}
 	}
 
@@ -310,15 +317,18 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "not logged in"})
 		return
 	}
-	// 添加 OIDC 认证状态和服务器密钥状态
+	// 添加 OIDC 认证状态和服务器密钥状态（如果 API 没有返回）
 	userInfo := make(map[string]interface{})
 	for k, v := range cfg.UserInfo {
 		userInfo[k] = v
 	}
-	// OIDC 认证状态：只要 auth_method 是 oidc 就显示已开启
-	userInfo["auth_enabled"] = cfg.AuthMethod == "oidc"
-	// 服务器密钥状态：client_secret 非空时显示已设置
-	userInfo["secret_set"] = cfg.ClientSecret != ""
+	// 只在 userInfo 中没有这些字段时，才使用本地配置判断
+	if _, hasAuth := userInfo["auth_enabled"]; !hasAuth {
+		userInfo["auth_enabled"] = cfg.AuthMethod == "oidc"
+	}
+	if _, hasSecret := userInfo["secret_set"]; !hasSecret {
+		userInfo["secret_set"] = cfg.ClientSecret != ""
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "data": userInfo})
 }
 
