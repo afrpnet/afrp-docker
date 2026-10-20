@@ -121,13 +121,20 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
       <div class="user-details">
         <div class="user-name" id="user-name">加载中...</div>
         <div class="user-email" id="user-email"></div>
-        <div style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;">
-          <span class="user-role hidden" id="user-role"></span>
-          <span class="member-badge hidden" id="member-badge"></span>
-        </div>
-        <div class="member-expiry hidden" id="member-expiry"></div>
+        <span class="user-role hidden" id="user-role"></span>
       </div>
     </div>
+  </div>
+
+  <!-- 会员卡片 -->
+  <div id="membership-card" class="card hidden">
+    <h2>会员</h2>
+    <div id="membership-status"></div>
+    <div id="membership-closed-banner" class="hidden" style="background: #f5f5f5; padding: 12px; border-radius: 4px; margin-top: 12px; display: flex; align-items: center; gap: 10px;">
+      <span style="font-size: 18px;">️</span>
+      <span style="font-size: 13px; color: #666;">开通会员功能暂未开放（测试模式），仅测试人员可开通。</span>
+    </div>
+    <div id="membership-plans" style="margin-top: 12px;"></div>
   </div>
 
   <!-- 配置卡片 -->
@@ -390,7 +397,6 @@ async function loadUserInfo() {
     document.getElementById('user-name').textContent = username;
     document.getElementById('user-email').textContent = email;
 
-    // 显示角色（如果有）
     const roleEl = document.getElementById('user-role');
     if (role) {
       roleEl.textContent = role;
@@ -399,43 +405,122 @@ async function loadUserInfo() {
       roleEl.classList.add('hidden');
     }
 
-    // 显示会员徽章
-    const topGroup = (info.top_group || '').toString().toLowerCase();
-    const badgeEl = document.getElementById('member-badge');
-    if (topGroup && topGroup !== 'free') {
-      const badgeNames = { vip: 'VIP', svip: 'SVIP', pro: 'Pro', admin: '管理员' };
-      badgeEl.textContent = badgeNames[topGroup] || topGroup.toUpperCase();
-      badgeEl.className = 'member-badge ' + topGroup;
-      badgeEl.classList.remove('hidden');
-    } else {
-      badgeEl.classList.add('hidden');
-    }
-
-    // 显示会员到期时间
-    const expiryEl = document.getElementById('member-expiry');
-    const expiries = info.expiries || {};
-    const ownedGroups = ['vip', 'svip', 'pro'].filter(g => expiries[g] && expiries[g].toString().trim() !== '');
-    
-    if (ownedGroups.length > 0) {
-      const expiryTexts = ownedGroups.map(g => {
-        const date = expiries[g].toString();
-        if (date === '9999-12-31 23:59:59' || date === '9999-12-31') {
-          return '永久';
-        }
-        return date;
-      });
-      expiryEl.textContent = '会员到期：' + expiryTexts.join(' / ');
-      expiryEl.classList.remove('hidden');
-    } else {
-      expiryEl.classList.add('hidden');
-    }
-
     // 更新已保存账号列表中的用户信息
     saveAccountToList(currentIdentity, currentPassword, currentSite, { username, avatar });
   } catch (err) {
     console.error('Failed to load user info:', err);
     document.getElementById('user-name').textContent = currentIdentity || '未知用户';
   }
+}
+
+// ==================== 会员模块 ====================
+
+async function loadMembership() {
+  try {
+    const res = await fetch('/api/plans');
+    const data = await res.json();
+
+    const card = document.getElementById('membership-card');
+    const statusDiv = document.getElementById('membership-status');
+    const closedBanner = document.getElementById('membership-closed-banner');
+    const plansDiv = document.getElementById('membership-plans');
+
+    if (!data.ok || !data.data) {
+      card.classList.add('hidden');
+      return;
+    }
+
+    const plansData = data.data;
+    const canBuy = plansData.can_buy === true;
+    const membershipEnabled = plansData.membership_enabled === true;
+
+    // 如果会员功能未开启且用户不是测试人员，隐藏整个会员模块
+    if (!membershipEnabled && !plansData.is_tester) {
+      card.classList.add('hidden');
+      return;
+    }
+
+    // 显示会员卡片
+    card.classList.remove('hidden');
+
+    // 获取用户会员信息（从 plans API 返回的 user 字段）
+    const userInfo = plansData.user || {};
+    const topGroup = (userInfo.top_group || '').toString().toLowerCase();
+    const expiries = userInfo.expiries || {};
+
+    // 显示会员状态
+    const ownedGroups = ['vip', 'svip', 'pro'].filter(g => expiries[g] && expiries[g].toString().trim() !== '');
+    
+    let statusHtml = '';
+    if (topGroup && topGroup !== 'free') {
+      const badgeNames = { vip: 'VIP', svip: 'SVIP', pro: 'Pro', admin: '管理员' };
+      const badgeColors = { vip: '#2e7d32', svip: '#f57f17', pro: '#7b1fa2', admin: '#512da8' };
+      statusHtml += `<div style="margin-bottom: 12px;"><span class="member-badge" style="background: ${badgeColors[topGroup]}20; color: ${badgeColors[topGroup]};">${badgeNames[topGroup] || topGroup.toUpperCase()}</span></div>`;
+    }
+
+    if (ownedGroups.length > 0) {
+      statusHtml += '<div style="font-size: 13px; color: #666;">';
+      for (const g of ownedGroups) {
+        const date = expiries[g].toString();
+        let expiryText = date;
+        if (date === '9999-12-31 23:59:59' || date === '9999-12-31') {
+          expiryText = '永久';
+        }
+        const groupName = g === 'pro' ? 'Pro' : g.toUpperCase();
+        statusHtml += `<div style="margin: 4px 0;"><strong>${groupName}</strong>: ${expiryText}</div>`;
+      }
+      statusHtml += '</div>';
+    } else {
+      statusHtml = '<div style="color: #999; font-size: 13px;">当前未开通会员</div>';
+    }
+    statusDiv.innerHTML = statusHtml;
+
+    // 显示关闭横幅（当 canBuy 为 false 时）
+    if (!canBuy) {
+      closedBanner.classList.remove('hidden');
+      plansDiv.innerHTML = '';
+    } else {
+      closedBanner.classList.add('hidden');
+      // 显示套餐列表
+      const groups = plansData.groups || [];
+      if (groups.length === 0) {
+        plansDiv.innerHTML = '<div style="color: #999; font-size: 13px; padding: 12px; background: #f5f5f5; border-radius: 4px;">暂无可购买的套餐（可能已是永久会员或套餐已下架）。</div>';
+      } else {
+        let plansHtml = '';
+        for (const g of groups) {
+          const badgeColors = { vip: '#2e7d32', svip: '#f57f17', pro: '#7b1fa2' };
+          plansHtml += `<div style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px; margin-bottom: 12px;">`;
+          plansHtml += `<div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">`;
+          plansHtml += `<span class="member-badge" style="background: ${badgeColors[g.key] || '#666'}20; color: ${badgeColors[g.key] || '#666'};">${g.key === 'pro' ? 'Pro' : g.key.toUpperCase()}</span>`;
+          plansHtml += `<strong>${g.name || g.key}</strong>`;
+          plansHtml += `</div>`;
+          if (g.desc) {
+            plansHtml += `<div style="font-size: 12px; color: #666; margin-bottom: 8px;">${g.desc}</div>`;
+          }
+          if (g.plans && g.plans.length > 0) {
+            for (const p of g.plans) {
+              plansHtml += `<div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid #f0f0f0;">`;
+              plansHtml += `<span style="font-size: 13px;">${p.period_name || p.period}</span>`;
+              plansHtml += `<div style="display: flex; align-items: center; gap: 10px;">`;
+              plansHtml += `<span style="font-weight: bold; color: #d32f2f;">¥${p.price}</span>`;
+              plansHtml += `<button class="secondary" style="padding: 4px 12px; font-size: 12px;" onclick="buyPlan('${g.key}', '${p.period}')">购买</button>`;
+              plansHtml += `</div></div>`;
+            }
+          }
+          plansHtml += `</div>`;
+        }
+        plansDiv.innerHTML = plansHtml;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load membership:', err);
+    document.getElementById('membership-card').classList.add('hidden');
+  }
+}
+
+function buyPlan(group, period) {
+  alert('购买功能需要在官网完成：https://www.afrp.net');
+  window.open('https://www.afrp.net', '_blank');
 }
 
 // ==================== 登录/登出 ====================
@@ -561,7 +646,8 @@ async function doLogin() {
       loadSecret(),
       loadTunnels(),
       refreshStatus(),
-      refreshLog()
+      refreshLog(),
+      loadMembership()
     ]).then(() => {
       console.log('All data loaded successfully');
     }).catch(err => {
@@ -1110,7 +1196,8 @@ window.addEventListener('load', async () => {
         loadSecret(),
         loadTunnels(),
         refreshStatus(),
-        refreshLog()
+        refreshLog(),
+        loadMembership()
       ]).then(() => {
         console.log('All restored data loaded successfully');
       }).catch(err => {

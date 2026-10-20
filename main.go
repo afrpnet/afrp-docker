@@ -93,6 +93,7 @@ func main() {
 
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/user", handleUser)
+	http.HandleFunc("/api/plans", handlePlans)
 	http.HandleFunc("/api/config", handleConfig)
 	http.HandleFunc("/api/secret", handleSecret)
 	http.HandleFunc("/api/tunnels", handleTunnels)
@@ -408,6 +409,63 @@ func callUserAPI(site, token string) ([]byte, error) {
 	}
 	
 	return body, nil
+}
+
+func callPlansAPI(site, token string) ([]byte, error) {
+	apiURL := site + "/api/plans.php"
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %v", err)
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return body, nil
+}
+
+func handlePlans(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	cfg := loadConfig()
+	if cfg.LoginToken == "" {
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "not logged in"})
+		return
+	}
+	plansResp, err := callPlansAPI(cfg.AuthOIDCIssuer, cfg.LoginToken)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
+		return
+	}
+	var plansResult struct {
+		OK   bool                   `json:"ok"`
+		Data map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(plansResp, &plansResult); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "parse failed"})
+		return
+	}
+	if !plansResult.OK {
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "plans API returned error"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "data": plansResult.Data})
 }
 
 func handleConfig(w http.ResponseWriter, r *http.Request) {
