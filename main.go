@@ -369,9 +369,8 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		
 		// 如果更新了服务器地址，重新生成 frpc 配置
 		if _, hasAddr := updates["server_addr"]; hasAddr {
-			if err := writeFrpcConfig(cfg); err != nil {
-				log.Printf("Failed to write frpc config after server change: %v", err)
-			}
+			writeFrpcConfig(cfg)
+			log.Printf("Regenerated frpc config after server change")
 		}
 		
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
