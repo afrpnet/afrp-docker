@@ -24,10 +24,6 @@ button.secondary:hover { background: #e3f2fd; }
 .status.stopped { background: #ffebee; color: #c62828; }
 pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; overflow-x: auto; max-height: 400px; overflow-y: auto; font-size: 13px; }
 .hidden { display: none !important; }
-.server-list { margin-top: 10px; }
-.server-item { padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px; cursor: pointer; }
-.server-item:hover { background: #f0f0f0; }
-.server-item.selected { background: #e3f2fd; border-color: #1976d2; }
 .error { color: #c62828; margin-top: 10px; }
 .success { color: #2e7d32; margin-top: 10px; }
 .secret-box { background: #f5f5f5; padding: 12px; border-radius: 4px; font-family: monospace; word-break: break-all; margin: 10px 0; }
@@ -41,71 +37,129 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 .modal { background: white; padding: 24px; border-radius: 8px; max-width: 500px; width: 90%; }
 .modal h3 { margin-top: 0; }
 .modal-actions { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
+
+/* 页面头部 */
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.page-header h1 { margin: 0; }
+
+/* 用户信息卡片 */
+.user-info { display: flex; align-items: center; gap: 16px; }
+.user-avatar { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #999; overflow: hidden; flex-shrink: 0; }
+.user-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.user-details { flex: 1; }
+.user-name { font-size: 18px; font-weight: 600; color: #333; }
+.user-email { font-size: 13px; color: #888; margin-top: 2px; }
+.user-role { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e3f2fd; color: #1565c0; margin-top: 4px; }
+
+/* 已保存账号列表 */
+.saved-account-item { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: background 0.15s; }
+.saved-account-item:hover { background: #f5f9ff; border-color: #1976d2; }
+.saved-account-avatar { width: 40px; height: 40px; border-radius: 50%; background: #e0e0e0; display: flex; align-items: center; justify-content: center; font-size: 16px; color: #999; overflow: hidden; flex-shrink: 0; }
+.saved-account-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.saved-account-info { flex: 1; }
+.saved-account-name { font-weight: 500; font-size: 14px; color: #333; }
+.saved-account-identity { font-size: 12px; color: #999; }
+.saved-account-actions { display: flex; gap: 5px; }
+.saved-account-actions button { padding: 5px 10px; font-size: 12px; margin-right: 0; }
+
+/* 退出按钮 */
+.btn-logout { background: #fff; color: #d32f2f; border: 1px solid #d32f2f; padding: 6px 14px; font-size: 13px; border-radius: 4px; cursor: pointer; }
+.btn-logout:hover { background: #ffebee; }
 </style>
 </head>
 <body>
-<h1>AFRP 内网穿透</h1>
 
-<!-- 登录卡片 -->
-<div id="login-card" class="card">
-  <h2>登录</h2>
-  <label>账号 / 邮箱
-    <input type="text" id="identity" placeholder="用户名或邮箱">
-  </label>
-  <label>密码
-    <input type="password" id="password" placeholder="登录密码">
-  </label>
-  <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; margin-bottom: 10px;">
-    <input type="checkbox" id="remember-me" style="width: auto; margin: 0;">
-    <span>记住账号密码</span>
-  </label>
-  <button onclick="doLogin()" id="login-btn">登录</button>
-  <div style="margin-top: 10px; font-size: 13px; color: #666;">
-    使用 <a href="https://www.afrp.net" target="_blank" style="color: #1976d2;">AFRP 官网</a> 账号登录
+<!-- ==================== 登录页面 ==================== -->
+<div id="login-page">
+  <h1 style="text-align: center; margin-bottom: 30px;">AFRP 内网穿透</h1>
+
+  <!-- 已保存账号列表 -->
+  <div id="saved-accounts-card" class="card hidden">
+    <h2>选择账号登录</h2>
+    <div id="saved-accounts-list"></div>
   </div>
-  <div id="login-error" class="error"></div>
+
+  <!-- 登录表单 -->
+  <div id="login-card" class="card">
+    <h2>登录</h2>
+    <label>账号 / 邮箱
+      <input type="text" id="identity" placeholder="用户名或邮箱">
+    </label>
+    <label>密码
+      <input type="password" id="password" placeholder="登录密码">
+    </label>
+    <label style="display: flex; align-items: center; gap: 5px; font-weight: normal; margin-bottom: 10px;">
+      <input type="checkbox" id="remember-me" checked style="width: auto; margin: 0;">
+      <span>记住账号密码</span>
+    </label>
+    <button onclick="doLogin()" id="login-btn" style="width: 100%;">登录</button>
+    <div style="margin-top: 10px; font-size: 13px; color: #666; text-align: center;">
+      使用 <a href="https://www.afrp.net" target="_blank" style="color: #1976d2;">AFRP 官网</a> 账号登录
+    </div>
+    <div id="login-error" class="error"></div>
+  </div>
 </div>
 
-<!-- 配置卡片（登录后显示） -->
-<div id="config-card" class="card hidden">
-  <h2>服务器选择</h2>
-  <div style="display: flex; gap: 10px;">
-    <select id="server-select" style="flex: 1; padding: 10px; font-size: 14px; border-radius: 4px; border: 1px solid #ddd;" onchange="onServerSelectChange()">
-      <option value="">请选择服务器...</option>
-    </select>
-    <button class="secondary" onclick="refreshServers()" style="padding: 10px 15px; white-space: nowrap;">🔄 刷新</button>
+<!-- ==================== 主页面（登录后） ==================== -->
+<div id="main-page" class="hidden">
+  <div class="page-header">
+    <h1>AFRP 内网穿透</h1>
+    <button class="btn-logout" onclick="logout()">退出登录</button>
   </div>
-  
-  <h2 style="margin-top: 20px;">Client Secret</h2>
-  <div id="secret-display">
-    <div class="secret-box" id="secret-value">加载中...</div>
-    <div class="secret-actions">
-      <button class="secondary" onclick="showPasteSecret()">粘贴密钥</button>
-      <button class="danger" onclick="confirmRotateSecret()">生成新密钥</button>
-      <button class="secondary" onclick="clearSecret()">清除</button>
-      <button class="secondary" onclick="loadSecret()" style="margin-left: auto;">🔄 刷新</button>
+
+  <!-- 用户信息卡片 -->
+  <div id="user-info-card" class="card">
+    <div class="user-info">
+      <div class="user-avatar" id="user-avatar">?</div>
+      <div class="user-details">
+        <div class="user-name" id="user-name">加载中...</div>
+        <div class="user-email" id="user-email"></div>
+        <span class="user-role hidden" id="user-role"></span>
+      </div>
     </div>
   </div>
-  
-  <h2 style="margin-top: 20px;">隧道管理</h2>
-  <div id="tunnel-list"></div>
-  <div style="margin-top: 10px; display: flex; gap: 10px;">
-    <button class="secondary" onclick="showAddTunnelModal()">+ 添加隧道</button>
-    <button class="secondary" onclick="loadTunnels()">🔄 刷新</button>
-  </div>
-  
-  <h2 style="margin-top: 20px;">状态</h2>
-  <div id="status" class="status stopped">未知</div>
-  <button onclick="startFrpc()">启动</button>
-  <button onclick="stopFrpc()" class="danger">停止</button>
-  <button onclick="refreshStatus()">刷新</button>
-</div>
 
-<!-- 日志卡片 -->
-<div id="log-card" class="card hidden">
-  <h2>日志</h2>
-  <pre id="log">暂无日志</pre>
-  <button onclick="refreshLog()">刷新日志</button>
+  <!-- 配置卡片 -->
+  <div id="config-card" class="card">
+    <h2>服务器选择</h2>
+    <div style="display: flex; gap: 10px;">
+      <select id="server-select" style="flex: 1; padding: 10px; font-size: 14px; border-radius: 4px; border: 1px solid #ddd;" onchange="onServerSelectChange()">
+        <option value="">请选择服务器...</option>
+      </select>
+      <button class="secondary" onclick="refreshServers()" style="padding: 10px 15px; white-space: nowrap;">&#x1F504; 刷新</button>
+    </div>
+
+    <h2 style="margin-top: 20px;">Client Secret</h2>
+    <div id="secret-display">
+      <div class="secret-box" id="secret-value">加载中...</div>
+      <div class="secret-actions">
+        <button class="secondary" onclick="showPasteSecret()">粘贴密钥</button>
+        <button class="danger" onclick="confirmRotateSecret()">生成新密钥</button>
+        <button class="secondary" onclick="clearSecret()">清除</button>
+        <button class="secondary" onclick="loadSecret()" style="margin-left: auto;">&#x1F504; 刷新</button>
+      </div>
+    </div>
+
+    <h2 style="margin-top: 20px;">隧道管理</h2>
+    <div id="tunnel-list"></div>
+    <div style="margin-top: 10px; display: flex; gap: 10px;">
+      <button class="secondary" onclick="showAddTunnelModal()">+ 添加隧道</button>
+      <button class="secondary" onclick="loadTunnels()">&#x1F504; 刷新</button>
+    </div>
+
+    <h2 style="margin-top: 20px;">状态</h2>
+    <div id="status" class="status stopped">未知</div>
+    <button onclick="startFrpc()">启动</button>
+    <button onclick="stopFrpc()" class="danger">停止</button>
+    <button onclick="refreshStatus()">刷新</button>
+  </div>
+
+  <!-- 日志卡片 -->
+  <div id="log-card" class="card">
+    <h2>日志</h2>
+    <pre id="log">暂无日志</pre>
+    <button onclick="refreshLog()">刷新日志</button>
+  </div>
 </div>
 
 <!-- 粘贴密钥对话框 -->
@@ -129,11 +183,11 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
     <h3 id="tunnel-modal-title">添加隧道</h3>
     <form id="tunnel-form">
       <input type="hidden" id="tunnel-edit-name" value="">
-      
+
       <label>隧道名称 *
         <input type="text" id="tunnel-name" required placeholder="例如：web-server">
       </label>
-      
+
       <label>类型 *
         <select id="tunnel-type" required onchange="updateTunnelFormFields()">
           <option value="tcp">TCP（端口转发）</option>
@@ -145,39 +199,39 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
           <option value="xtcp">XTCP（点对点）</option>
         </select>
       </label>
-      
+
       <label>本地地址 *
         <input type="text" id="tunnel-local-ip" value="127.0.0.1" required placeholder="127.0.0.1">
       </label>
-      
+
       <label>本地端口 *
         <input type="number" id="tunnel-local-port" required min="1" max="65535" placeholder="8080">
       </label>
-      
+
       <div id="remote-port-field">
         <label>远程端口 *
           <input type="number" id="tunnel-remote-port" min="1" max="65535" placeholder="80">
         </label>
       </div>
-      
+
       <div id="subdomain-field" class="hidden">
         <label>子域名
           <input type="text" id="tunnel-subdomain" placeholder="myapp">
         </label>
       </div>
-      
+
       <div id="custom-domain-field" class="hidden">
         <label>自定义域名
           <input type="text" id="tunnel-custom-domain" placeholder="example.com">
         </label>
       </div>
-      
+
       <div id="secret-key-field" class="hidden">
         <label>访问密钥
           <input type="text" id="tunnel-secret-key" placeholder="用于 stcp/sudp/xtcp 的访问密钥">
         </label>
       </div>
-      
+
       <div class="modal-actions">
         <button type="button" class="secondary" onclick="closeTunnelModal()">取消</button>
         <button type="submit" onclick="saveTunnel(event)">保存</button>
@@ -190,33 +244,176 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 let selectedServer = null;
 let servers = [];
 let currentSecret = '';
+let currentIdentity = '';
+let currentPassword = '';
+let currentSite = 'https://www.afrp.net';
+
+// ==================== 页面切换 ====================
+
+function showLoginPage() {
+  document.getElementById('login-page').classList.remove('hidden');
+  document.getElementById('main-page').classList.add('hidden');
+  loadSavedAccounts();
+}
+
+function showMainPage() {
+  document.getElementById('login-page').classList.add('hidden');
+  document.getElementById('main-page').classList.remove('hidden');
+  loadUserInfo();
+}
+
+// ==================== 已保存账号管理 ====================
+
+function getSavedAccounts() {
+  try {
+    return JSON.parse(localStorage.getItem('afrp_saved_accounts') || '[]');
+  } catch { return []; }
+}
+
+function saveAccountToList(identity, password, site, userInfo) {
+  const accounts = getSavedAccounts();
+  const existing = accounts.findIndex(a => a.identity === identity && a.site === site);
+
+  const entry = {
+    identity,
+    password,
+    site,
+    username: userInfo?.username || userInfo?.name || identity,
+    avatar: userInfo?.avatar || userInfo?.avatar_url || '',
+    loginTime: new Date().toISOString()
+  };
+
+  if (existing >= 0) {
+    accounts[existing] = entry;
+  } else {
+    accounts.unshift(entry);
+  }
+
+  localStorage.setItem('afrp_saved_accounts', JSON.stringify(accounts));
+}
+
+function removeSavedAccount(idx) {
+  if (!confirm('确定删除此保存的账号吗？')) return;
+  const accounts = getSavedAccounts();
+  accounts.splice(idx, 1);
+  localStorage.setItem('afrp_saved_accounts', JSON.stringify(accounts));
+  loadSavedAccounts();
+}
+
+function loadSavedAccounts() {
+  const accounts = getSavedAccounts();
+  const card = document.getElementById('saved-accounts-card');
+  const list = document.getElementById('saved-accounts-list');
+
+  if (accounts.length === 0) {
+    card.classList.add('hidden');
+    return;
+  }
+
+  card.classList.remove('hidden');
+  list.innerHTML = '';
+
+  accounts.forEach((acc, idx) => {
+    const div = document.createElement('div');
+    div.className = 'saved-account-item';
+
+    const avatarHtml = acc.avatar
+      ? `<div class="saved-account-avatar"><img src="${escapeHtml(acc.avatar)}" alt=""></div>`
+      : `<div class="saved-account-avatar">${escapeHtml((acc.username || acc.identity || '?')[0].toUpperCase())}</div>`;
+
+    div.innerHTML = `
+      ${avatarHtml}
+      <div class="saved-account-info" onclick="quickLogin(${idx})">
+        <div class="saved-account-name">${escapeHtml(acc.username || acc.identity)}</div>
+        <div class="saved-account-identity">${escapeHtml(acc.identity)}</div>
+      </div>
+      <div class="saved-account-actions">
+        <button class="secondary" onclick="event.stopPropagation(); quickLogin(${idx})">登录</button>
+        <button class="danger" onclick="event.stopPropagation(); removeSavedAccount(${idx})" style="padding: 5px 8px; font-size: 12px;">&#x2716;</button>
+      </div>
+    `;
+    list.appendChild(div);
+  });
+}
+
+async function quickLogin(idx) {
+  const accounts = getSavedAccounts();
+  const acc = accounts[idx];
+  if (!acc) return;
+
+  document.getElementById('identity').value = acc.identity;
+  document.getElementById('password').value = acc.password;
+  document.getElementById('remember-me').checked = true;
+  currentIdentity = acc.identity;
+  currentPassword = acc.password;
+  currentSite = acc.site || 'https://www.afrp.net';
+
+  await doLogin();
+}
+
+// ==================== 用户信息 ====================
+
+async function loadUserInfo() {
+  try {
+    const res = await fetch('/api/user');
+    const data = await res.json();
+
+    if (!data.ok || !data.data) {
+      document.getElementById('user-name').textContent = currentIdentity || '未知用户';
+      return;
+    }
+
+    const info = data.data;
+    const username = info.username || info.name || info.user || currentIdentity || '未知用户';
+    const email = info.email || info.mail || '';
+    const avatar = info.avatar || info.avatar_url || info.photo || '';
+    const role = info.role || info.role_name || info.group || '';
+
+    const avatarEl = document.getElementById('user-avatar');
+    if (avatar) {
+      avatarEl.innerHTML = `<img src="${escapeHtml(avatar)}" alt="">`;
+    } else {
+      avatarEl.textContent = username[0].toUpperCase();
+    }
+
+    document.getElementById('user-name').textContent = username;
+    document.getElementById('user-email').textContent = email;
+
+    const roleEl = document.getElementById('user-role');
+    if (role) {
+      roleEl.textContent = role;
+      roleEl.classList.remove('hidden');
+    } else {
+      roleEl.classList.add('hidden');
+    }
+
+    // 更新已保存账号列表中的用户信息
+    saveAccountToList(currentIdentity, currentPassword, currentSite, { username, avatar });
+  } catch (err) {
+    console.error('Failed to load user info:', err);
+    document.getElementById('user-name').textContent = currentIdentity || '未知用户';
+  }
+}
+
+// ==================== 登录/登出 ====================
 
 async function doLogin() {
-  const site = 'https://www.afrp.net'; // 固定官网地址
+  const site = currentSite || 'https://www.afrp.net';
   const identity = document.getElementById('identity').value.trim();
   const password = document.getElementById('password').value;
   const rememberMe = document.getElementById('remember-me').checked;
-  
+
   if (!identity || !password) {
     document.getElementById('login-error').textContent = '请填写账号和密码';
     return;
   }
-  
-  // 如果勾选了"记住我"，保存到 localStorage
-  if (rememberMe) {
-    localStorage.setItem('afrp_login_creds', JSON.stringify({
-      identity: identity,
-      password: password,
-      timestamp: new Date().toISOString()
-    }));
-  } else {
-    // 否则清除保存的凭证
-    localStorage.removeItem('afrp_login_creds');
-  }
-  
+
+  currentIdentity = identity;
+  currentPassword = password;
+
   document.getElementById('login-btn').disabled = true;
   document.getElementById('login-error').textContent = '登录中...';
-  
+
   try {
     const res = await fetch('/api/login', {
       method: 'POST',
@@ -225,12 +422,9 @@ async function doLogin() {
     });
     const data = await res.json();
     console.log('Full login response:', JSON.stringify(data, null, 2));
-    
+
     if (!data.ok) {
-      // 尝试从嵌套错误中提取有用信息
       let errorMsg = data.error || '未知错误';
-      
-      // 如果错误信息包含 JSON，尝试解析
       if (errorMsg.includes('{')) {
         try {
           const nestedError = JSON.parse(errorMsg.substring(errorMsg.indexOf('{')));
@@ -239,39 +433,47 @@ async function doLogin() {
           } else if (nestedError.error === 'invalid_credentials') {
             errorMsg = '账号或密码错误';
           }
-        } catch (e) {
-          // 解析失败，使用原始错误
-        }
+        } catch (e) {}
       }
-      
       document.getElementById('login-error').textContent = '登录失败：' + errorMsg;
       return;
     }
-    
-    // 登录成功，显示配置卡片
-    document.getElementById('login-card').classList.add('hidden');
-    document.getElementById('config-card').classList.remove('hidden');
-    document.getElementById('log-card').classList.remove('hidden');
-    
+
+    // 登录成功
     console.log('Login successful, servers:', data.servers);
-    
+
+    // 保存账号到已保存列表
+    if (rememberMe) {
+      saveAccountToList(identity, password, site, {});
+    }
+
+    // 保存活跃会话
+    localStorage.setItem('afrp_active_session', JSON.stringify({
+      identity,
+      site,
+      loginTime: new Date().toISOString()
+    }));
+
+    // 显示主页面
+    showMainPage();
+
     // 显示服务器列表
     servers = data.servers || [];
     renderServers(servers);
-    
-    // 保存登录状态到 localStorage
-    saveLoginState(req.identity, req.Site, servers);
-    
+
+    // 保存配置到 localStorage
+    saveLoginState(identity, site, servers);
+
     // 如果登录响应中有 secret，直接显示
     if (data.secret) {
       console.log('Got secret from login response');
-      document.getElementById('secret-value').textContent = data.secret;
+      currentSecret = data.secret;
+      updateSecretDisplay();
     }
-    
-    // 立即加载所有数据（并行请求）
-    console.log('Loading all data in parallel...');
+
+    // 并行加载所有数据
     Promise.all([
-      data.secret ? Promise.resolve() : loadSecret(), // 如果已有 secret 则跳过
+      data.secret ? Promise.resolve() : loadSecret(),
       loadTunnels(),
       refreshStatus(),
       refreshLog()
@@ -280,6 +482,8 @@ async function doLogin() {
     }).catch(err => {
       console.error('Failed to load some data:', err);
     });
+
+    document.getElementById('login-error').textContent = '';
   } catch (err) {
     document.getElementById('login-error').textContent = '网络错误：' + err.message;
   } finally {
@@ -287,17 +491,37 @@ async function doLogin() {
   }
 }
 
+function logout() {
+  if (!confirm('确定退出登录吗？')) return;
+
+  localStorage.removeItem('afrp_active_session');
+  currentIdentity = '';
+  currentPassword = '';
+  selectedServer = null;
+  servers = [];
+  currentSecret = '';
+
+  // 清空表单
+  document.getElementById('identity').value = '';
+  document.getElementById('password').value = '';
+  document.getElementById('login-error').textContent = '';
+
+  showLoginPage();
+}
+
+// ==================== 服务器管理 ====================
+
 function renderServers(serverList) {
   const select = document.getElementById('server-select');
   select.innerHTML = '<option value="">请选择服务器...</option>';
-  
+
   console.log('Rendering servers:', serverList);
-  
+
   if (!serverList || serverList.length === 0) {
     select.innerHTML = '<option value="" disabled>暂无可用服务器</option>';
     return;
   }
-  
+
   serverList.forEach((srv, idx) => {
     const option = document.createElement('option');
     option.value = idx;
@@ -313,15 +537,14 @@ function renderServers(serverList) {
 function onServerSelectChange() {
   const select = document.getElementById('server-select');
   const idx = parseInt(select.value);
-  
+
   if (isNaN(idx) || !servers[idx]) {
     selectedServer = null;
     return;
   }
-  
+
   selectedServer = servers[idx];
-  
-  // 更新配置中的服务器地址
+
   fetch('/api/config', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -330,8 +553,7 @@ function onServerSelectChange() {
       server_port: selectedServer.port
     })
   });
-  
-  // 保存选中的服务器 ID 到 localStorage
+
   const savedConfig = localStorage.getItem('afrp_config');
   if (savedConfig) {
     try {
@@ -343,8 +565,7 @@ function onServerSelectChange() {
       console.error('Failed to save server selection:', err);
     }
   }
-  
-  // 重新渲染隧道列表（因为子域名可能变化）
+
   renderTunnels();
 }
 
@@ -365,39 +586,31 @@ async function refreshServers() {
     const btn = event.target;
     btn.disabled = true;
     btn.textContent = '刷新中...';
-    
-    // 重新调用登录 API 获取最新服务器列表
-    const identity = document.getElementById('identity').value;
-    const password = document.getElementById('password').value;
-    
-    if (!identity || !password) {
-      alert('请先输入账号密码');
+
+    if (!currentIdentity || !currentPassword) {
+      alert('登录信息已过期，请重新登录');
+      logout();
       return;
     }
-    
+
     const response = await fetch('/api/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        identity: identity,
-        password: password,
-        site: 'https://www.afrp.net'
+        identity: currentIdentity,
+        password: currentPassword,
+        site: currentSite
       })
     });
-    
+
     const data = await response.json();
     console.log('Refresh servers response:', data);
-    
+
     if (data.ok && data.servers) {
       servers = data.servers;
       renderServers(servers);
-      
-      // 更新本地存储
-      saveLoginState(identity, 'https://www.afrp.net', servers);
-      
-      // 重新渲染隧道列表（子域名可能变化）
+      saveLoginState(currentIdentity, currentSite, servers);
       renderTunnels();
-      
       alert(`已刷新服务器列表，共 ${servers.length} 个服务器`);
     } else {
       alert('刷新失败：' + (data.error || '未知错误'));
@@ -408,17 +621,17 @@ async function refreshServers() {
   } finally {
     const btn = event.target;
     btn.disabled = false;
-    btn.textContent = ' 刷新';
+    btn.textContent = '\u{1F504} 刷新';
   }
 }
+
+// ==================== Client Secret ====================
 
 async function loadSecret() {
   try {
     console.log('Loading secret...');
     const res = await fetch('/api/secret');
     if (!res.ok) {
-      console.log('Secret API returned non-OK status:', res.status);
-      // 未登录或 API 错误，不显示 secret
       currentSecret = '';
       updateSecretDisplay();
       return;
@@ -438,6 +651,7 @@ function updateSecretDisplay() {
   const el = document.getElementById('secret-value');
   if (currentSecret) {
     el.textContent = currentSecret;
+    el.style.color = '';
   } else {
     el.textContent = '未设置（请粘贴或生成新密钥）';
     el.style.color = '#999';
@@ -462,7 +676,7 @@ async function savePastedSecret() {
     alert('请输入密钥');
     return;
   }
-  
+
   try {
     const res = await fetch('/api/secret', {
       method: 'POST',
@@ -470,7 +684,7 @@ async function savePastedSecret() {
       body: JSON.stringify({ secret, action: 'save' })
     });
     const data = await res.json();
-    
+
     if (data.ok) {
       currentSecret = secret;
       updateSecretDisplay();
@@ -486,7 +700,7 @@ async function confirmRotateSecret() {
   if (!confirm('旧密钥将立即失效，所有使用旧密钥的客户端会断开。确定生成新密钥吗？')) {
     return;
   }
-  
+
   try {
     const res = await fetch('/api/secret', {
       method: 'POST',
@@ -494,12 +708,10 @@ async function confirmRotateSecret() {
       body: JSON.stringify({ secret: '', action: 'rotate' })
     });
     const data = await res.json();
-    
+
     if (data.ok) {
       currentSecret = data.secret || '';
       updateSecretDisplay();
-      
-      // 显示新密钥供用户保存
       alert('新密钥已生成并保存：\n\n' + currentSecret + '\n\n请妥善保存，旧密钥已失效。');
     } else {
       alert('生成失败：' + (data.error || '未知错误'));
@@ -513,7 +725,7 @@ async function clearSecret() {
   if (!confirm('确定清除本机存储的密钥吗？')) {
     return;
   }
-  
+
   try {
     const res = await fetch('/api/secret', {
       method: 'POST',
@@ -521,7 +733,7 @@ async function clearSecret() {
       body: JSON.stringify({ secret: '', action: 'save' })
     });
     const data = await res.json();
-    
+
     if (data.ok) {
       currentSecret = '';
       updateSecretDisplay();
@@ -531,6 +743,8 @@ async function clearSecret() {
     alert('清除失败：' + err.message);
   }
 }
+
+// ==================== 状态/启停/日志 ====================
 
 async function refreshStatus() {
   const res = await fetch('/api/status');
@@ -563,17 +777,15 @@ async function refreshLog() {
   document.getElementById('log').textContent = text || '暂无日志';
 }
 
-// 隧道管理功能
+// ==================== 隧道管理 ====================
+
 let tunnels = [];
 
 async function loadTunnels() {
   try {
     console.log('Loading tunnels...');
     const res = await fetch('/api/tunnels');
-    if (!res.ok) {
-      console.log('Tunnels API returned non-OK status:', res.status);
-      return;
-    }
+    if (!res.ok) return;
     const data = await res.json();
     console.log('Tunnels loaded:', data);
     tunnels = data.tunnels || [];
@@ -586,34 +798,33 @@ async function loadTunnels() {
 function renderTunnels() {
   const container = document.getElementById('tunnel-list');
   container.innerHTML = '';
-  
+
   if (tunnels.length === 0) {
     container.innerHTML = '<div style="color: #999; font-size: 13px;">暂无隧道，点击"添加隧道"创建</div>';
     return;
   }
-  
-  // 获取当前选中服务器的 subdomain 基础域
-  const serverSubdomain = selectedServer && selectedServer.subdomain 
-    ? selectedServer.subdomain.replace(/^\*\./, '') 
+
+  const serverSubdomain = selectedServer && selectedServer.subdomain
+    ? selectedServer.subdomain.replace(/^\*\./, '')
     : 'afrp.net';
-  
+
   tunnels.forEach((t, idx) => {
     const div = document.createElement('div');
     div.className = 'tunnel-item';
-    
+
     let details = `${t.type.toUpperCase()} ${t.localIp}:${t.localPort}`;
     if (t.type === 'http' || t.type === 'https') {
       if (t.customDomain) {
-        details += ` → ${t.customDomain}`;
+        details += ` \u2192 ${t.customDomain}`;
       } else if (t.subdomain) {
-        details += ` → ${t.subdomain}.${serverSubdomain}`;
+        details += ` \u2192 ${t.subdomain}.${serverSubdomain}`;
       }
     } else if (t.type === 'stcp' || t.type === 'sudp' || t.type === 'xtcp') {
-      details += t.secretKey ? ' → 密钥已设置' : ' → 无密钥';
+      details += t.secretKey ? ' \u2192 密钥已设置' : ' \u2192 无密钥';
     } else {
-      details += t.remotePort ? ` → :${t.remotePort}` : '';
+      details += t.remotePort ? ` \u2192 :${t.remotePort}` : '';
     }
-    
+
     div.innerHTML = `
       <div class="tunnel-info">
         <div class="tunnel-name">${escapeHtml(t.name)}</div>
@@ -669,14 +880,12 @@ function updateTunnelFormFields() {
   const type = document.getElementById('tunnel-type').value;
   const isWeb = type === 'http' || type === 'https';
   const isP2P = type === 'stcp' || type === 'sudp' || type === 'xtcp';
-  
-  // 显示/隐藏字段
+
   document.getElementById('remote-port-field').classList.toggle('hidden', isWeb || isP2P);
   document.getElementById('subdomain-field').classList.toggle('hidden', !isWeb);
   document.getElementById('custom-domain-field').classList.toggle('hidden', !isWeb);
   document.getElementById('secret-key-field').classList.toggle('hidden', !isP2P);
-  
-  // 更新远程端口必填状态
+
   const remotePortInput = document.getElementById('tunnel-remote-port');
   if (isWeb || isP2P) {
     remotePortInput.removeAttribute('required');
@@ -687,25 +896,25 @@ function updateTunnelFormFields() {
 
 async function saveTunnel(event) {
   event.preventDefault();
-  
+
   const editName = document.getElementById('tunnel-edit-name').value;
   const tunnel = {
     name: document.getElementById('tunnel-name').value.trim(),
     type: document.getElementById('tunnel-type').value,
     localIp: document.getElementById('tunnel-local-ip').value.trim(),
     localPort: parseInt(document.getElementById('tunnel-local-port').value),
-    remotePort: document.getElementById('tunnel-remote-port').value ? 
+    remotePort: document.getElementById('tunnel-remote-port').value ?
                 parseInt(document.getElementById('tunnel-remote-port').value) : null,
     subdomain: document.getElementById('tunnel-subdomain').value.trim(),
     customDomain: document.getElementById('tunnel-custom-domain').value.trim(),
     secretKey: document.getElementById('tunnel-secret-key').value.trim()
   };
-  
+
   if (!tunnel.name || !tunnel.type || !tunnel.localIp || !tunnel.localPort) {
     alert('请填写所有必填字段');
     return;
   }
-  
+
   try {
     const res = await fetch('/api/tunnels', {
       method: 'POST',
@@ -713,7 +922,7 @@ async function saveTunnel(event) {
       body: JSON.stringify(tunnel)
     });
     const data = await res.json();
-    
+
     if (data.ok) {
       closeTunnelModal();
       await loadTunnels();
@@ -731,7 +940,7 @@ async function deleteTunnel(idx) {
   if (!confirm(`确定删除隧道 "${t.name}" 吗？`)) {
     return;
   }
-  
+
   try {
     const res = await fetch('/api/tunnels', {
       method: 'DELETE',
@@ -739,7 +948,7 @@ async function deleteTunnel(idx) {
       body: JSON.stringify({ name: t.name })
     });
     const data = await res.json();
-    
+
     if (data.ok) {
       await loadTunnels();
       alert('隧道已删除');
@@ -751,66 +960,40 @@ async function deleteTunnel(idx) {
   }
 }
 
-// 页面加载时初始化，确保所有弹窗都隐藏
+// ==================== 页面初始化 ====================
+
 window.addEventListener('load', async () => {
-  // 强制隐藏粘贴密钥对话框
-  const pasteModal = document.getElementById('paste-modal');
-  if (pasteModal) {
-    pasteModal.classList.add('hidden');
-  }
-  
-  // 清空输入框
-  const secretInput = document.getElementById('secret-input');
-  if (secretInput) {
-    secretInput.value = '';
-  }
-  
-  // 恢复保存的账号密码（如果有）
-  const savedCreds = localStorage.getItem('afrp_login_creds');
-  if (savedCreds) {
-    try {
-      const creds = JSON.parse(savedCreds);
-      if (creds.identity && creds.password) {
-        document.getElementById('identity').value = creds.identity;
-        document.getElementById('password').value = creds.password;
-        document.getElementById('remember-me').checked = true;
-        console.log('Restored saved credentials');
-      }
-    } catch (err) {
-      console.error('Failed to restore credentials:', err);
-      localStorage.removeItem('afrp_login_creds');
-    }
-  }
-  
-  // 检查是否已登录（从 localStorage 恢复）
+  // 检查是否有活跃会话
+  const session = localStorage.getItem('afrp_active_session');
   const savedConfig = localStorage.getItem('afrp_config');
-  if (savedConfig) {
+
+  if (session) {
     try {
-      const config = JSON.parse(savedConfig);
-      console.log('Restoring login state:', config);
-      
-      if (config.user && config.auth_oidc_issuer) {
-        // 已登录，显示配置界面
-        document.getElementById('login-card').classList.add('hidden');
-        document.getElementById('config-card').classList.remove('hidden');
-        document.getElementById('log-card').classList.remove('hidden');
-        
-        // 填充登录信息
-        document.getElementById('identity').value = config.user;
-        
-        // 加载服务器列表（如果有保存的）
+      const sess = JSON.parse(session);
+      currentIdentity = sess.identity;
+      currentSite = sess.site || 'https://www.afrp.net';
+
+      // 尝试从已保存账号中获取密码
+      const accounts = getSavedAccounts();
+      const acc = accounts.find(a => a.identity === sess.identity && a.site === sess.site);
+      if (acc) {
+        currentPassword = acc.password;
+        document.getElementById('identity').value = acc.identity;
+        document.getElementById('password').value = acc.password;
+      }
+
+      // 恢复服务器列表
+      if (savedConfig) {
+        const config = JSON.parse(savedConfig);
         if (config.servers && Array.isArray(config.servers) && config.servers.length > 0) {
           servers = config.servers;
           renderServers(servers);
-          
-          // 恢复选中的服务器
+
           if (config.selected_server_id) {
             const idx = servers.findIndex(s => s.id === config.selected_server_id);
             if (idx >= 0) {
               selectedServer = servers[idx];
               document.getElementById('server-select').value = idx;
-              
-              // 更新后端配置（因为恢复时没有触发 onchange）
               fetch('/api/config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -822,29 +1005,30 @@ window.addEventListener('load', async () => {
             }
           }
         }
-        
-        // 加载 secret 和 tunnels（并行请求）
-        console.log('Loading data after restore...');
-        Promise.all([
-          loadSecret(),
-          loadTunnels(),
-          refreshStatus(),
-          refreshLog()
-        ]).then(() => {
-          console.log('All restored data loaded successfully');
-        }).catch(err => {
-          console.error('Failed to load some restored data:', err);
-        });
-        
-        console.log('Login state restored successfully');
-      } else {
-        console.log('Invalid saved config: missing user or auth_oidc_issuer');
       }
+
+      // 显示主页面并加载数据
+      showMainPage();
+      Promise.all([
+        loadSecret(),
+        loadTunnels(),
+        refreshStatus(),
+        refreshLog()
+      ]).then(() => {
+        console.log('All restored data loaded successfully');
+      }).catch(err => {
+        console.error('Failed to load some restored data:', err);
+      });
+
+      return;
     } catch (err) {
-      console.error('Failed to restore login state:', err);
-      localStorage.removeItem('afrp_config');
+      console.error('Failed to restore session:', err);
+      localStorage.removeItem('afrp_active_session');
     }
   }
+
+  // 没有活跃会话，显示登录页面
+  showLoginPage();
 });
 </script>
 </body>

@@ -35,6 +35,7 @@ type Config struct {
 	AuthOIDCTokenEndpoint string `json:"auth_oidc_token_endpoint"`
 	ClientSecret string   `json:"client_secret,omitempty"`
 	LoginToken   string   `json:"login_token,omitempty"` // 临时 token，用于调用官网 API
+	UserInfo     map[string]interface{} `json:"user_info,omitempty"` // 用户信息（头像、用户名、邮箱、角色等）
 	Tunnels      []Tunnel `json:"tunnels,omitempty"`
 }
 
@@ -91,6 +92,7 @@ func main() {
 	os.MkdirAll(filepath.Dir(logFile), 0755)
 
 	http.HandleFunc("/api/login", handleLogin)
+	http.HandleFunc("/api/user", handleUser)
 	http.HandleFunc("/api/config", handleConfig)
 	http.HandleFunc("/api/secret", handleSecret)
 	http.HandleFunc("/api/tunnels", handleTunnels)
@@ -245,6 +247,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	cfg.AuthOIDCIssuer = req.Site
 	cfg.LoginToken = loginResponse.Data.Token // 保存登录 token 用于后续 API 调用
 	cfg.ClientSecret = clientSecret // 保存从官网获取的 Client Secret
+	cfg.UserInfo = loginResponse.Data.User // 保存用户信息（头像、用户名、邮箱、角色等）
 	
 	// 保存 OIDC 配置参数
 	if oidcConfig.TokenEndpoint != "" {
@@ -268,6 +271,19 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Sending login response to client")
 	json.NewEncoder(w).Encode(result)
+}
+
+func handleUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	cfg := loadConfig()
+	if cfg.UserInfo == nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "not logged in"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "data": cfg.UserInfo})
 }
 
 func callLoginAPI(site, identity, password string) ([]byte, error) {
