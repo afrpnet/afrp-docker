@@ -1,4 +1,4 @@
-# AFRP Web UI
+# AFRP OIDC Client - Docker
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/afrpnet/afrp-docker/master/logo-banner.png" alt="AFRP Logo" width="320"/>
