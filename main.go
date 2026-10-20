@@ -230,8 +230,25 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 					log.Printf("Got client secret from API: %s", clientSecret)
 				}
 			}
-			// 保存完整用户信息（包括会员信息）
-			userInfo = userResult.Data
+			// 提取 user 对象中的字段
+			if userObj, ok := userResult.Data["user"].(map[string]interface{}); ok {
+				userInfo = userObj
+			} else {
+				userInfo = userResult.Data
+			}
+			// 保存会员信息到 userInfo
+			if groups, ok := userResult.Data["groups"]; ok {
+				userInfo["groups"] = groups
+			}
+			if topGroup, ok := userResult.Data["top_group"]; ok {
+				userInfo["top_group"] = topGroup
+			}
+			if expiries, ok := userResult.Data["expiries"]; ok {
+				userInfo["expiries"] = expiries
+			}
+			if memberLabel, ok := userResult.Data["member_label"]; ok {
+				userInfo["member_label"] = memberLabel
+			}
 		}
 	}
 
