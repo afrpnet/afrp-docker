@@ -315,7 +315,9 @@ func handleUser(w http.ResponseWriter, r *http.Request) {
 	for k, v := range cfg.UserInfo {
 		userInfo[k] = v
 	}
-	userInfo["auth_enabled"] = cfg.AuthMethod == "oidc" && cfg.ClientSecret != ""
+	// OIDC 认证状态：只要 auth_method 是 oidc 就显示已开启
+	userInfo["auth_enabled"] = cfg.AuthMethod == "oidc"
+	// 服务器密钥状态：client_secret 非空时显示已设置
 	userInfo["secret_set"] = cfg.ClientSecret != ""
 	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "data": userInfo})
 }
