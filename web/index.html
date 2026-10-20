@@ -68,6 +68,11 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 .saved-account-identity { font-size: 12px; color: #999; }
 .saved-account-actions { display: flex; gap: 5px; }
 .saved-account-actions button { padding: 5px 10px; font-size: 12px; margin-right: 0; }
+.saved-account-item.active { border-color: #4caf50; background: #f1f8f2; }
+.saved-account-item.active:hover { background: #e8f5e9; border-color: #4caf50; }
+.saved-account-tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }
+.saved-account-tag.active-tag { background: #e8f5e9; color: #2e7d32; }
+.saved-account-tag.nopass-tag { background: #fff3e0; color: #ef6c00; }
 
 /* 退出按钮 */
 .btn-logout { background: #fff; color: #d32f2f; border: 1px solid #d32f2f; padding: 6px 14px; font-size: 13px; border-radius: 4px; cursor: pointer; }
@@ -83,6 +88,7 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
   <!-- 已保存账号列表 -->
   <div id="saved-accounts-card" class="card hidden">
     <h2>选择账号登录</h2>
+    <div id="active-session-banner" class="hidden" style="background: #e8f5e9; padding: 10px; border-radius: 4px; margin-bottom: 12px; font-size: 13px; color: #2e7d32;"></div>
     <div id="saved-accounts-list"></div>
   </div>
 
@@ -273,6 +279,7 @@ let currentSite = 'https://www.afrp.net';
 function showLoginPage() {
   document.getElementById('login-page').classList.remove('hidden');
   document.getElementById('main-page').classList.add('hidden');
+  migrateLegacyCreds();
   loadSavedAccounts();
 }
 
@@ -286,25 +293,30 @@ function showMainPage() {
 
 function getSavedAccounts() {
   try {
-    return JSON.parse(localStorage.getItem('afrp_saved_accounts') || '[]');
+    const list = JSON.parse(localStorage.getItem('afrp_saved_accounts') || '[]');
+    return Array.isArray(list) ? list : [];
   } catch { return []; }
 }
 
 function saveAccountToList(identity, password, site, userInfo) {
+  if (!identity) return;
   const accounts = getSavedAccounts();
   const existing = accounts.findIndex(a => a.identity === identity && a.site === site);
+  const prev = existing >= 0 ? accounts[existing] : null;
 
   const entry = {
     identity,
-    password,
-    site,
-    username: userInfo?.username || userInfo?.name || identity,
-    avatar: userInfo?.avatar || userInfo?.avatar_url || '',
+    password: password || (prev ? prev.password : ''),
+    site: site || (prev ? prev.site : 'https://www.afrp.net'),
+    username: (userInfo && (userInfo.username || userInfo.name)) || (prev ? prev.username : '') || identity,
+    avatar: (userInfo && (userInfo.avatar || userInfo.avatar_url)) || (prev ? prev.avatar : ''),
     loginTime: new Date().toISOString()
   };
 
   if (existing >= 0) {
-    accounts[existing] = entry;
+    // 重新登录时移到最前面，按最近使用排序
+    accounts.splice(existing, 1);
+    accounts.unshift(entry);
   } else {
     accounts.unshift(entry);
   }
@@ -312,11 +324,74 @@ function saveAccountToList(identity, password, site, userInfo) {
   localStorage.setItem('afrp_saved_accounts', JSON.stringify(accounts));
 }
 
-function removeSavedAccount(idx) {
-  if (!confirm('确定删除此保存的账号吗？')) return;
+// 仅更新已存在账号的资料，不新建、不改动密码
+function updateAccountProfile(identity, site, userInfo) {
+  if (!identity) return;
   const accounts = getSavedAccounts();
+  const idx = accounts.findIndex(a => a.identity === identity && a.site === site);
+  if (idx < 0) return;
+  if (userInfo && userInfo.username) accounts[idx].username = userInfo.username;
+  if (userInfo && (userInfo.avatar || userInfo.avatar_url)) accounts[idx].avatar = userInfo.avatar || userInfo.avatar_url;
+  localStorage.setItem('afrp_saved_accounts', JSON.stringify(accounts));
+}
+
+// 保留账号记录但清除已保存的密码
+function clearAccountPassword(identity, site) {
+  const accounts = getSavedAccounts();
+  const idx = accounts.findIndex(a => a.identity === identity && a.site === site);
+  if (idx < 0) {
+    accounts.unshift({
+      identity,
+      password: '',
+      site: site || 'https://www.afrp.net',
+      username: identity,
+      avatar: '',
+      loginTime: new Date().toISOString()
+    });
+  } else {
+    accounts[idx].password = '';
+    accounts[idx].loginTime = new Date().toISOString();
+  }
+  localStorage.setItem('afrp_saved_accounts', JSON.stringify(accounts));
+}
+
+// 从旧版 afrp_login_creds 迁移到账号列表
+function migrateLegacyCreds() {
+  const legacy = localStorage.getItem('afrp_login_creds');
+  if (!legacy) return;
+  try {
+    const creds = JSON.parse(legacy);
+    if (creds.identity && creds.password) {
+      saveAccountToList(creds.identity, creds.password, 'https://www.afrp.net', {});
+    }
+    localStorage.removeItem('afrp_login_creds');
+  } catch (err) {
+    console.error('Failed to migrate legacy credentials:', err);
+    localStorage.removeItem('afrp_login_creds');
+  }
+}
+
+function removeSavedAccount(idx) {
+  const accounts = getSavedAccounts();
+  const acc = accounts[idx];
+  if (!acc) return;
+  if (!confirm('确定删除此保存的账号吗？')) return;
   accounts.splice(idx, 1);
   localStorage.setItem('afrp_saved_accounts', JSON.stringify(accounts));
+
+  // 删除的正是当前活跃账号时，同时清除会话
+  try {
+    const raw = localStorage.getItem('afrp_active_session');
+    if (raw) {
+      const sess = JSON.parse(raw);
+      if (sess.identity === acc.identity && (sess.site || 'https://www.afrp.net') === (acc.site || 'https://www.afrp.net')) {
+        localStorage.removeItem('afrp_active_session');
+      }
+    }
+  } catch (e) {
+    console.error('Failed to check active session:', e);
+  }
+
   loadSavedAccounts();
 }
 
@@ -324,36 +399,97 @@ function loadSavedAccounts() {
   const accounts = getSavedAccounts();
   const card = document.getElementById('saved-accounts-card');
   const list = document.getElementById('saved-accounts-list');
+  const banner = document.getElementById('active-session-banner');
+
+  // 当前活跃会话
+  let active = null;
+  try {
+    const raw = localStorage.getItem('afrp_active_session');
+    if (raw) {
+      const sess = JSON.parse(raw);
+      if (sess && sess.identity) {
+        active = { identity: sess.identity, site: sess.site || 'https://www.afrp.net' };
+      }
+    }
+  } catch (e) {
+    console.error('Failed to read active session:', e);
+  }
 
   if (accounts.length === 0) {
     card.classList.add('hidden');
+    list.innerHTML = '';
+    if (banner) banner.classList.add('hidden');
     return;
   }
 
   card.classList.remove('hidden');
   list.innerHTML = '';
 
+  if (banner) {
+    if (active) {
+      const matched = accounts.find(a => a.identity === active.identity && a.site === active.site);
+      banner.innerHTML = '当前已登录：<strong>' + escapeHtml((matched && matched.username) || active.identity) +
+        '</strong>，可直接进入管理页面。';
+      banner.classList.remove('hidden');
+    } else {
+      banner.classList.add('hidden');
+    }
+  }
+
   accounts.forEach((acc, idx) => {
     const div = document.createElement('div');
-    div.className = 'saved-account-item';
+    const isActive = !!(active && acc.identity === active.identity && acc.site === active.site);
+    div.className = 'saved-account-item' + (isActive ? ' active' : '');
 
     const avatarHtml = acc.avatar
       ? `<div class="saved-account-avatar"><img src="${escapeHtml(acc.avatar)}" alt=""></div>`
       : `<div class="saved-account-avatar">${escapeHtml((acc.username || acc.identity || '?')[0].toUpperCase())}</div>`;
 
+    const tags = [];
+    if (isActive) tags.push('<span class="saved-account-tag active-tag">已登录</span>');
+    if (!acc.password) tags.push('<span class="saved-account-tag nopass-tag">未保存密码</span>');
+
+    const actionHtml = isActive
+      ? `<button class="primary" onclick="event.stopPropagation(); enterMainPage()">进入</button>`
+      : `<button class="secondary" onclick="event.stopPropagation(); quickLogin(${idx})">登录</button>`;
+
     div.innerHTML = `
       ${avatarHtml}
-      <div class="saved-account-info" onclick="quickLogin(${idx})">
-        <div class="saved-account-name">${escapeHtml(acc.username || acc.identity)}</div>
+      <div class="saved-account-info" onclick="${isActive ? 'enterMainPage()' : `quickLogin(${idx})`}">
+        <div class="saved-account-name">${escapeHtml(acc.username || acc.identity)}${tags.join('')}</div>
         <div class="saved-account-identity">${escapeHtml(acc.identity)}</div>
       </div>
       <div class="saved-account-actions">
-        <button class="secondary" onclick="event.stopPropagation(); quickLogin(${idx})">登录</button>
+        ${actionHtml}
         <button class="danger" onclick="event.stopPropagation(); removeSavedAccount(${idx})" style="padding: 5px 8px; font-size: 12px;">&#x2716;</button>
       </div>
     `;
     list.appendChild(div);
   });
+}
+
+// 直接进入管理页面（用于已登录账号）
+function enterMainPage() {
+  const session = localStorage.getItem('afrp_active_session');
+  if (!session) {
+    showLoginPage();
+    return;
+  }
+  try {
+    const sess = JSON.parse(session);
+    currentIdentity = sess.identity || '';
+    currentSite = sess.site || 'https://www.afrp.net';
+  } catch (e) {
+    console.error('Failed to read active session:', e);
+  }
+  showMainPage();
+  Promise.all([
+    loadSecret(),
+    loadTunnels(),
+    refreshStatus(),
+    refreshLog(),
+    loadMembership()
+  ]).catch(err => console.error('Failed to load data:', err));
 }
 
 async function quickLogin(idx) {
@@ -362,11 +498,19 @@ async function quickLogin(idx) {
   if (!acc) return;
 
   document.getElementById('identity').value = acc.identity;
+  currentIdentity = acc.identity;
+  currentSite = acc.site || 'https://www.afrp.net';
+
+  if (!acc.password) {
+    document.getElementById('password').value = '';
+    document.getElementById('password').focus();
+    document.getElementById('login-error').textContent = '此账号未保存密码，请输入后登录';
+    return;
+  }
+
   document.getElementById('password').value = acc.password;
   document.getElementById('remember-me').checked = true;
-  currentIdentity = acc.identity;
   currentPassword = acc.password;
-  currentSite = acc.site || 'https://www.afrp.net';
 
   await doLogin();
 }
@@ -399,8 +543,8 @@ async function loadUserInfo() {
 
     accountList.innerHTML = html;
 
-    // 更新已保存账号列表中的用户信息
-    saveAccountToList(currentIdentity, currentPassword, currentSite, { username });
+    // 更新已保存账号列表中的用户资料（不改动密码，不新建记录）
+    updateAccountProfile(currentIdentity, currentSite, { username });
   } catch (err) {
     console.error('Failed to load user info:', err);
     document.getElementById('account-list').innerHTML = '<div style="color: #c62828; font-size: 13px;">加载失败</div>';
@@ -571,9 +715,12 @@ async function doLogin() {
     // 登录成功
     console.log('Login successful, servers:', data.servers);
 
-    // 保存账号到已保存列表
+    // 保存账号到已保存列表（勾选"记住我"才存密码）
     if (rememberMe) {
       saveAccountToList(identity, password, site, {});
+    } else {
+      // 未勾选时保留账号记录但清除密码
+      clearAccountPassword(identity, site);
     }
 
     // 保存活跃会话
