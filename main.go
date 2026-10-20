@@ -36,6 +36,7 @@ type Config struct {
 	ClientSecret string   `json:"client_secret,omitempty"`
 	LoginToken   string   `json:"login_token,omitempty"` // 临时 token，用于调用官网 API
 	AccountSecrets map[string]string `json:"account_secrets,omitempty"` // 账号 -> Client Secret，切换账号时按账号取用
+	AccountServers map[string]int    `json:"account_servers,omitempty"` // 账号 -> 最后选择的服务器 ID
 	UserInfo     map[string]interface{} `json:"user_info,omitempty"` // 用户信息（头像、用户名、邮箱、角色等）
 	Tunnels      []Tunnel `json:"tunnels,omitempty"`
 }
@@ -76,6 +77,25 @@ func (c *Config) currentSecret() string {
 	return ""
 }
 
+// 记录账号最后选择的服务器
+func (c *Config) setAccountServer(identity string, serverID int) {
+	if accountKey(identity) == "" || serverID <= 0 {
+		return
+	}
+	if c.AccountServers == nil {
+		c.AccountServers = map[string]int{}
+	}
+	c.AccountServers[accountKey(identity)] = serverID
+}
+
+// 读取账号最后选择的服务器
+func (c *Config) getAccountServer(identity string) int {
+	if c.AccountServers == nil {
+		return 0
+	}
+	return c.AccountServers[accountKey(identity)]
+}
+
 type LoginRequest struct {
 	Site     string `json:"site"`
 	Identity string `json:"identity"`
@@ -88,6 +108,7 @@ type LoginResponse struct {
 	Config   OIDCConfig `json:"config,omitempty"`
 	Servers  []Server `json:"servers,omitempty"`
 	Secret   string   `json:"secret,omitempty"`
+	SavedServerID int `json:"saved_server_id,omitempty"` // 该账号上次选择的服务器
 }
 
 type OIDCConfig struct {
@@ -372,6 +393,19 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		cfg.ServerAddr = result.Servers[0].Addr
 		cfg.ServerPort = result.Servers[0].Port
 	}
+
+	// 恢复该账号上次选择的服务器
+	if savedID := cfg.getAccountServer(username); savedID > 0 {
+		for _, srv := range result.Servers {
+			if srv.ID == savedID {
+				cfg.ServerAddr = srv.Addr
+				cfg.ServerPort = srv.Port
+				result.SavedServerID = savedID
+				break
+			}
+		}
+	}
+
 	saveConfig(cfg)
 
 	// 用当前账号的密钥重新生成 frpc 配置，切换账号后直接可用
@@ -592,13 +626,17 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		
 		// 加载现有配置
 		cfg := loadConfig()
-		
+
 		// 只更新传入的字段
 		if addr, ok := updates["server_addr"].(string); ok {
 			cfg.ServerAddr = addr
 		}
 		if port, ok := updates["server_port"].(float64); ok {
 			cfg.ServerPort = int(port)
+		}
+		if id, ok := updates["server_id"].(float64); ok {
+			// 记录当前账号选择的服务器，下次登录自动选中
+			cfg.setAccountServer(cfg.User, int(id))
 		}
 		if secret, ok := updates["client_secret"].(string); ok {
 			cfg.ClientSecret = secret

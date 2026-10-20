@@ -737,46 +737,12 @@ async function doLogin() {
     servers = data.servers || [];
     renderServers(servers);
 
-    // 恢复之前选择的服务器（如果有），否则默认选择第一个
-    let serverRestored = false;
-    const savedConfig = localStorage.getItem('afrp_config');
-    if (savedConfig) {
-      try {
-        const config = JSON.parse(savedConfig);
-        if (config.selected_server_id && config.servers) {
-          const idx = servers.findIndex(s => s.id === config.selected_server_id);
-          if (idx >= 0) {
-            selectedServer = servers[idx];
-            document.getElementById('server-select').value = idx;
-            serverRestored = true;
-            // 更新后端配置
-            fetch('/api/config', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                server_addr: selectedServer.addr,
-                server_port: selectedServer.port
-              })
-            });
-          }
-        }
-      } catch (e) {
-        console.error('Failed to restore server selection:', e);
-      }
-    }
-
-    // 如果没有恢复成功，默认选择第一个服务器
-    if (!serverRestored && servers.length > 0) {
-      selectedServer = servers[0];
-      document.getElementById('server-select').value = 0;
-      fetch('/api/config', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          server_addr: selectedServer.addr,
-          server_port: selectedServer.port
-        })
-      });
+    // 恢复该账号上次选择的服务器，没有则默认第一个
+    const restored = restoreServerSelection(servers, data.saved_server_id);
+    if (restored) {
+      applyServerSelection(restored);
+    } else if (servers.length > 0) {
+      applyServerSelection(servers[0]);
     }
 
     // 保存配置到 localStorage
@@ -858,38 +824,91 @@ function onServerSelectChange() {
     return;
   }
 
-  selectedServer = servers[idx];
+  applyServerSelection(servers[idx]);
+  renderTunnels();
+}
+
+// 记录并应用服务器选择（按账号保存，下次登录自动选中）
+function applyServerSelection(srv) {
+  if (!srv) return;
+  selectedServer = srv;
+  saveAccountServer(currentIdentity, srv.id);
+  saveSelectedServerId(srv.id);
 
   fetch('/api/config', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
-      server_addr: selectedServer.addr,
-      server_port: selectedServer.port
+      server_addr: srv.addr,
+      server_port: srv.port,
+      server_id: srv.id
     })
   });
+}
 
-  const savedConfig = localStorage.getItem('afrp_config');
-  if (savedConfig) {
-    try {
-      const config = JSON.parse(savedConfig);
-      config.selected_server_id = selectedServer.id;
-      config.servers = servers;
-      localStorage.setItem('afrp_config', JSON.stringify(config));
-    } catch (err) {
-      console.error('Failed to save server selection:', err);
+// 账号 -> 服务器 ID 的本地记忆
+function getAccountServers() {
+  try {
+    const map = JSON.parse(localStorage.getItem('afrp_account_servers') || '{}');
+    return (map && typeof map === 'object' && !Array.isArray(map)) ? map : {};
+  } catch { return {}; }
+}
+
+function saveAccountServer(identity, serverId) {
+  if (!identity || !serverId) return;
+  const map = getAccountServers();
+  map[identity] = serverId;
+  localStorage.setItem('afrp_account_servers', JSON.stringify(map));
+}
+
+function getAccountServer(identity) {
+  return getAccountServers()[identity] || null;
+}
+
+// 旧版全局记录，保持兼容
+function saveSelectedServerId(serverId) {
+  try {
+    const config = JSON.parse(localStorage.getItem('afrp_config') || '{}');
+    config.selected_server_id = serverId;
+    config.servers = servers;
+    localStorage.setItem('afrp_config', JSON.stringify(config));
+  } catch (err) {
+    console.error('Failed to save server selection:', err);
+  }
+}
+
+// 恢复服务器选择：账号记忆 > 登录响应 > 旧版全局记录 > 第一个
+function restoreServerSelection(serverList, loginServerId) {
+  if (!serverList || serverList.length === 0) return null;
+  const candidates = [];
+  const accId = getAccountServer(currentIdentity);
+  if (accId) candidates.push(accId);
+  if (loginServerId) candidates.push(loginServerId);
+  try {
+    const cfg = JSON.parse(localStorage.getItem('afrp_config') || '{}');
+    if (cfg.selected_server_id) candidates.push(cfg.selected_server_id);
+  } catch (e) {
+    console.error('Failed to read saved server selection:', e);
+  }
+  for (const id of candidates) {
+    const idx = serverList.findIndex(s => s.id === id);
+    if (idx >= 0) {
+      document.getElementById('server-select').value = idx;
+      return serverList[idx];
     }
   }
-
-  renderTunnels();
+  return null;
 }
 
 function saveLoginState(username, site, serverList) {
+  let selectedId = null;
+  if (selectedServer) selectedId = selectedServer.id;
+  else if (serverList && serverList.length > 0) selectedId = serverList[0].id;
   const config = {
     user: username,
     auth_oidc_issuer: site,
     servers: serverList,
-    selected_server_id: serverList.length > 0 ? serverList[0].id : null,
+    selected_server_id: selectedId,
     login_time: new Date().toISOString()
   };
   localStorage.setItem('afrp_config', JSON.stringify(config));
@@ -924,6 +943,12 @@ async function refreshServers() {
     if (data.ok && data.servers) {
       servers = data.servers;
       renderServers(servers);
+      const restored = restoreServerSelection(servers, data.saved_server_id);
+      if (restored) {
+        applyServerSelection(restored);
+      } else if (servers.length > 0) {
+        applyServerSelection(servers[0]);
+      }
       saveLoginState(currentIdentity, currentSite, servers);
       renderTunnels();
       alert(`已刷新服务器列表，共 ${servers.length} 个服务器`);
@@ -1308,36 +1333,12 @@ window.addEventListener('load', async () => {
           servers = config.servers;
           renderServers(servers);
 
-          let serverRestored = false;
-          if (config.selected_server_id) {
-            const idx = servers.findIndex(s => s.id === config.selected_server_id);
-            if (idx >= 0) {
-              selectedServer = servers[idx];
-              document.getElementById('server-select').value = idx;
-              serverRestored = true;
-              fetch('/api/config', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                  server_addr: selectedServer.addr,
-                  server_port: selectedServer.port
-                })
-              });
-            }
-          }
-
-          // 如果没有恢复成功，默认选择第一个服务器
-          if (!serverRestored && servers.length > 0) {
-            selectedServer = servers[0];
-            document.getElementById('server-select').value = 0;
-            fetch('/api/config', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({
-                server_addr: selectedServer.addr,
-                server_port: selectedServer.port
-              })
-            });
+          // 恢复该账号上次选择的服务器，没有则默认第一个
+          const restored = restoreServerSelection(servers, null);
+          if (restored) {
+            applyServerSelection(restored);
+          } else if (servers.length > 0) {
+            applyServerSelection(servers[0]);
           }
         }
       }
