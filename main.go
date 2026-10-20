@@ -210,23 +210,27 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 步骤4: 获取用户信息（包含 Client Secret）
+	// 步骤4: 获取用户信息（包含 Client Secret 和会员信息）
 	userResp, err := callUserAPI(req.Site, loginResponse.Data.Token)
 	var clientSecret string
+	var userInfo map[string]interface{}
 	if err == nil {
 		var userResult struct {
-			OK   bool `json:"ok"`
-			Data struct {
-				ClientSecret string `json:"client_secret"`
-			} `json:"data"`
+			OK   bool                   `json:"ok"`
+			Data map[string]interface{} `json:"data"`
 		}
 		if err := json.Unmarshal(userResp, &userResult); err == nil && userResult.OK {
-			clientSecret = userResult.Data.ClientSecret
-			if len(clientSecret) > 10 {
-				log.Printf("Got client secret from API: %s...", clientSecret[:10])
-			} else {
-				log.Printf("Got client secret from API: %s", clientSecret)
+			// 提取 client_secret
+			if cs, ok := userResult.Data["client_secret"].(string); ok {
+				clientSecret = cs
+				if len(clientSecret) > 10 {
+					log.Printf("Got client secret from API: %s...", clientSecret[:10])
+				} else {
+					log.Printf("Got client secret from API: %s", clientSecret)
+				}
 			}
+			// 保存完整用户信息（包括会员信息）
+			userInfo = userResult.Data
 		}
 	}
 
@@ -247,7 +251,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	cfg.AuthOIDCIssuer = req.Site
 	cfg.LoginToken = loginResponse.Data.Token // 保存登录 token 用于后续 API 调用
 	cfg.ClientSecret = clientSecret // 保存从官网获取的 Client Secret
-	cfg.UserInfo = loginResponse.Data.User // 保存用户信息（头像、用户名、邮箱、角色等）
+	if userInfo != nil {
+		cfg.UserInfo = userInfo // 保存完整用户信息（包括会员信息）
+	} else {
+		cfg.UserInfo = loginResponse.Data.User // 回退到登录响应中的用户信息
+	}
 	
 	// 保存 OIDC 配置参数
 	if oidcConfig.TokenEndpoint != "" {
@@ -376,7 +384,7 @@ func callConfigAPI(site string) ([]byte, error) {
 }
 
 func callUserAPI(site, token string) ([]byte, error) {
-	apiURL := site + "/api/user.php"
+	apiURL := site + "/api/me.php"
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %v", err)

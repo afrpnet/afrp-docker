@@ -50,6 +50,13 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
 .user-name { font-size: 18px; font-weight: 600; color: #333; }
 .user-email { font-size: 13px; color: #888; margin-top: 2px; }
 .user-role { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #e3f2fd; color: #1565c0; margin-top: 4px; }
+.member-badge { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.member-badge.free { background: #f5f5f5; color: #757575; border: 1px solid #e0e0e0; }
+.member-badge.vip { background: #e8f5e9; color: #2e7d32; }
+.member-badge.svip { background: #fff8e1; color: #f57f17; }
+.member-badge.pro { background: #f3e5f5; color: #7b1fa2; }
+.member-badge.admin { background: #ede7f6; color: #512da8; }
+.member-expiry { font-size: 12px; color: #888; margin-top: 4px; }
 
 /* 已保存账号列表 */
 .saved-account-item { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 8px; cursor: pointer; transition: background 0.15s; }
@@ -114,7 +121,11 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
       <div class="user-details">
         <div class="user-name" id="user-name">加载中...</div>
         <div class="user-email" id="user-email"></div>
-        <span class="user-role hidden" id="user-role"></span>
+        <div style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap;">
+          <span class="user-role hidden" id="user-role"></span>
+          <span class="member-badge hidden" id="member-badge"></span>
+        </div>
+        <div class="member-expiry hidden" id="member-expiry"></div>
       </div>
     </div>
   </div>
@@ -379,12 +390,44 @@ async function loadUserInfo() {
     document.getElementById('user-name').textContent = username;
     document.getElementById('user-email').textContent = email;
 
+    // 显示角色（如果有）
     const roleEl = document.getElementById('user-role');
     if (role) {
       roleEl.textContent = role;
       roleEl.classList.remove('hidden');
     } else {
       roleEl.classList.add('hidden');
+    }
+
+    // 显示会员徽章
+    const topGroup = (info.top_group || '').toString().toLowerCase();
+    const badgeEl = document.getElementById('member-badge');
+    if (topGroup && topGroup !== 'free') {
+      const badgeNames = { vip: 'VIP', svip: 'SVIP', pro: 'Pro', admin: '管理员' };
+      badgeEl.textContent = badgeNames[topGroup] || topGroup.toUpperCase();
+      badgeEl.className = 'member-badge ' + topGroup;
+      badgeEl.classList.remove('hidden');
+    } else {
+      badgeEl.classList.add('hidden');
+    }
+
+    // 显示会员到期时间
+    const expiryEl = document.getElementById('member-expiry');
+    const expiries = info.expiries || {};
+    const ownedGroups = ['vip', 'svip', 'pro'].filter(g => expiries[g] && expiries[g].toString().trim() !== '');
+    
+    if (ownedGroups.length > 0) {
+      const expiryTexts = ownedGroups.map(g => {
+        const date = expiries[g].toString();
+        if (date === '9999-12-31 23:59:59' || date === '9999-12-31') {
+          return '永久';
+        }
+        return date;
+      });
+      expiryEl.textContent = '会员到期：' + expiryTexts.join(' / ');
+      expiryEl.classList.remove('hidden');
+    } else {
+      expiryEl.classList.add('hidden');
     }
 
     // 更新已保存账号列表中的用户信息
