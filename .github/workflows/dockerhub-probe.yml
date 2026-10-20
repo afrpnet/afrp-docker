@@ -11,16 +11,17 @@ jobs:
         env:
           DU: ${{ secrets.DOCKER_USERNAME }}
           DP: ${{ secrets.DOCKER_PASSWORD }}
+          LOGO: https://raw.githubusercontent.com/afrpnet/afrp-docker/master/logo.png
         run: |
           TOKEN=$(curl -s -X POST https://hub.docker.com/v2/users/login/ \
             -H 'Content-Type: application/json' \
             -d "{\"username\":\"$DU\",\"password\":\"$DP\"}" | jq -r .token)
-          echo "token_len=${#TOKEN}"
-          echo "--- authed repo object ---"
-          curl -s -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/repositories/afrp/afrp/ | jq .
-          echo "--- authed user object ---"
-          curl -s -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/users/afrp/ | jq .
-          echo "--- try logo field ---"
-          curl -s -X PATCH https://hub.docker.com/v2/repositories/afrp/afrp/ \
-            -H "Authorization: JWT $TOKEN" -H 'Content-Type: application/json' \
-            -d '{"logo":"https://raw.githubusercontent.com/afrpnet/afrp-docker/master/logo.png"}' | jq .
+          for field in gravatar_url logo avatar profile_image image icon; do
+            echo "=== PATCH user field: $field"
+            curl -s -o /tmp/r.json -w "http=%{http_code}\n" -X PATCH https://hub.docker.com/v2/users/afrp/ \
+              -H "Authorization: JWT $TOKEN" -H 'Content-Type: application/json' \
+              -d "{\"$field\":\"$LOGO\"}"
+            jq -c '{gravatar_url, logo, avatar, profile_image, image, icon, detail}' /tmp/r.json 2>/dev/null || cat /tmp/r.json
+          done
+          echo "=== final user object ==="
+          curl -s -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/users/afrp/ | jq -c .
