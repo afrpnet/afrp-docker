@@ -262,10 +262,16 @@ async function doLogin() {
     // 保存登录状态到 localStorage
     saveLoginState(req.identity, req.Site, servers);
     
+    // 如果登录响应中有 secret，直接显示
+    if (data.secret) {
+      console.log('Got secret from login response');
+      document.getElementById('secret-value').textContent = data.secret;
+    }
+    
     // 立即加载所有数据（并行请求）
     console.log('Loading all data in parallel...');
     Promise.all([
-      loadSecret(),
+      data.secret ? Promise.resolve() : loadSecret(), // 如果已有 secret 则跳过
       loadTunnels(),
       refreshStatus(),
       refreshLog()

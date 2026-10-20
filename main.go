@@ -208,21 +208,39 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 步骤4: 获取用户信息（包含 Client Secret）
+	userResp, err := callUserAPI(req.Site, loginResponse.Data.Token)
+	var clientSecret string
+	if err == nil {
+		var userResult struct {
+			OK   bool `json:"ok"`
+			Data struct {
+				ClientSecret string `json:"client_secret"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(userResp, &userResult); err == nil && userResult.OK {
+			clientSecret = userResult.Data.ClientSecret
+			log.Printf("Got client secret from API: %s...", clientSecret[:min(10, len(clientSecret))])
+		}
+	}
+
 	// 构建响应
 	result := LoginResponse{
 		OK:      true,
 		Servers: serversResult.Servers,
 		Config:  oidcConfig,
+		Secret:  clientSecret,
 	}
-	log.Printf("Building login response: OK=%v, Servers count=%d", result.OK, len(result.Servers))
+	log.Printf("Building login response: OK=%v, Servers count=%d, Secret=%v", result.OK, len(result.Servers), clientSecret != "")
 
-	// 保存配置（包含 OIDC 参数）
+	// 保存配置（包含 OIDC 参数和 Client Secret）
 	cfg := loadConfig()
 	cfg.Enabled = true
 	cfg.User = req.Identity
 	cfg.AuthMethod = "oidc"
 	cfg.AuthOIDCIssuer = req.Site
 	cfg.LoginToken = loginResponse.Data.Token // 保存登录 token 用于后续 API 调用
+	cfg.ClientSecret = clientSecret // 保存从官网获取的 Client Secret
 	
 	// 保存 OIDC 配置参数
 	if oidcConfig.TokenEndpoint != "" {
@@ -316,6 +334,33 @@ func callConfigAPI(site string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create request failed: %v", err)
 	}
+	
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response failed: %v", err)
+	}
+	
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+	
+	return body, nil
+}
+
+func callUserAPI(site, token string) ([]byte, error) {
+	apiURL := site + "/api/user.php"
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
