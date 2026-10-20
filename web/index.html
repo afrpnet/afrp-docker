@@ -803,6 +803,16 @@ window.addEventListener('load', async () => {
             if (idx >= 0) {
               selectedServer = servers[idx];
               document.getElementById('server-select').value = idx;
+              
+              // 更新后端配置（因为恢复时没有触发 onchange）
+              fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                  server_addr: selectedServer.addr,
+                  server_port: selectedServer.port
+                })
+              });
             }
           }
         }

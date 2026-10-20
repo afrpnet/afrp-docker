@@ -342,12 +342,38 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		cfg := loadConfig()
 		json.NewEncoder(w).Encode(cfg)
 	case "POST":
-		var cfg Config
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		var updates map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
 			http.Error(w, err.Error(), 400)
 			return
 		}
+		
+		// 加载现有配置
+		cfg := loadConfig()
+		
+		// 只更新传入的字段
+		if addr, ok := updates["server_addr"].(string); ok {
+			cfg.ServerAddr = addr
+		}
+		if port, ok := updates["server_port"].(float64); ok {
+			cfg.ServerPort = int(port)
+		}
+		if secret, ok := updates["client_secret"].(string); ok {
+			cfg.ClientSecret = secret
+		}
+		if enabled, ok := updates["enabled"].(bool); ok {
+			cfg.Enabled = enabled
+		}
+		
 		saveConfig(cfg)
+		
+		// 如果更新了服务器地址，重新生成 frpc 配置
+		if _, hasAddr := updates["server_addr"]; hasAddr {
+			if err := writeFrpcConfig(cfg); err != nil {
+				log.Printf("Failed to write frpc config after server change: %v", err)
+			}
+		}
+		
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}
 }
