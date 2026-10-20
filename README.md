@@ -109,7 +109,6 @@ docker build -t afrp/afrp .
 |------|------|------|
 | `/api/login` | POST | 官网账号密码登录，返回服务器列表、账号上次选择的服务器等 |
 | `/api/user` | GET | 当前登录用户信息（含 OIDC 认证状态、密钥是否已设置） |
-| `/api/plans` | GET | 会员套餐列表 |
 | `/api/config` | GET | 获取当前配置 |
 | `/api/config` | POST | 保存配置（服务器地址/端口/ID、Client Secret） |
 | `/api/secret` | GET | 获取当前账号的 Client Secret |
