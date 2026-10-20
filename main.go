@@ -149,6 +149,9 @@ func main() {
 	os.MkdirAll(configDir, 0755)
 	os.MkdirAll(filepath.Dir(logFile), 0755)
 
+	// 旧版本写的是 INI 格式配置（frpc.ini），现已改为 frpc.toml；清掉残留文件，避免旧密钥明文留在磁盘上
+	os.Remove(filepath.Join(configDir, "frpc.ini"))
+
 	http.HandleFunc("/api/login", handleLogin)
 	http.HandleFunc("/api/user", handleUser)
 	http.HandleFunc("/api/plans", handlePlans)

@@ -66,6 +66,21 @@
   --badge-pro-fg: #7b1fa2;
   --badge-admin-bg: #ede7f6;
   --badge-admin-fg: #512da8;
+  --gb-free-bg: #f5f5f5;
+  --gb-free-fg: #757575;
+  --gb-free-bd: #e0e0e0;
+  --gb-vip-bg: #e8f5e9;
+  --gb-vip-fg: #2e7d32;
+  --gb-vip-bd: #a5d6a7;
+  --gb-svip-bg: #fdf4e0;
+  --gb-svip-fg: #a97a0b;
+  --gb-svip-bd: #e3c877;
+  --gb-pro-bg: #f3e5f5;
+  --gb-pro-fg: #6a1b9a;
+  --gb-pro-bd: #ce93d8;
+  --gb-admin-bg: #ede7f6;
+  --gb-admin-fg: #7c3aed;
+  --gb-admin-bd: #b39ddb;
 }
 
 html[data-theme="dark"] {
@@ -117,6 +132,21 @@ html[data-theme="dark"] {
   --badge-pro-fg: #da77f2;
   --badge-admin-bg: #2a2340;
   --badge-admin-fg: #b197fc;
+  --gb-free-bg: #2b3138;
+  --gb-free-fg: #adb5bd;
+  --gb-free-bd: #495057;
+  --gb-vip-bg: #14301c;
+  --gb-vip-fg: #69db7c;
+  --gb-vip-bd: #2f6b3d;
+  --gb-svip-bg: #33290e;
+  --gb-svip-fg: #ffd43b;
+  --gb-svip-bd: #7a6318;
+  --gb-pro-bg: #2b1a33;
+  --gb-pro-fg: #da77f2;
+  --gb-pro-bd: #5a3566;
+  --gb-admin-bg: #241d3d;
+  --gb-admin-fg: #b197fc;
+  --gb-admin-bd: #4c3d78;
 }
 
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: var(--bg); color: var(--text); }
@@ -181,6 +211,18 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
 /* 页面头部 */
 .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-right: 46px; }
 .page-header h1 { margin: 0; }
+
+/* 卡片标题行（标题 + 右侧徽章） */
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+.card-head h2 { margin: 0; }
+
+/* 服务器分组徽章 */
+.group-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; border: 1px solid transparent; white-space: nowrap; }
+.group-badge.group-free { background: var(--gb-free-bg); color: var(--gb-free-fg); border-color: var(--gb-free-bd); }
+.group-badge.group-vip { background: var(--gb-vip-bg); color: var(--gb-vip-fg); border-color: var(--gb-vip-bd); }
+.group-badge.group-svip { background: var(--gb-svip-bg); color: var(--gb-svip-fg); border-color: var(--gb-svip-bd); }
+.group-badge.group-pro { background: var(--gb-pro-bg); color: var(--gb-pro-fg); border-color: var(--gb-pro-bd); }
+.group-badge.group-admin { background: var(--gb-admin-bg); color: var(--gb-admin-fg); border-color: var(--gb-admin-bd); }
 
 /* 用户信息卡片 */
 .user-info { display: flex; align-items: center; gap: 16px; }
@@ -293,7 +335,10 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
 
   <!-- 配置卡片 -->
   <div id="config-card" class="card">
-    <h2>服务器选择</h2>
+    <div class="card-head">
+      <h2>服务器选择</h2>
+      <span id="server-group-badge" class="group-badge hidden"></span>
+    </div>
     <div style="display: flex; gap: 10px;">
       <select id="server-select" style="flex: 1; padding: 10px; font-size: 14px;" onchange="onServerSelectChange()">
         <option value="">请选择服务器...</option>
@@ -944,6 +989,7 @@ function logout() {
   currentSecret = '';
   frpcRunning = false;
   updateServerSelectState();
+  updateServerGroupBadge(null);
 
   // 清空表单
   document.getElementById('identity').value = '';
@@ -980,11 +1026,31 @@ function onServerSelectChange() {
 
   if (isNaN(idx) || !servers[idx]) {
     selectedServer = null;
+    updateServerGroupBadge(null);
     return;
   }
 
   applyServerSelection(servers[idx]);
   renderTunnels();
+}
+
+// 已选服务器的分组徽章（与 Windows 客户端一致）
+const SERVER_GROUP_NAMES = { free: '免费', vip: 'VIP', svip: 'SVIP', pro: 'Pro', admin: '管理员' };
+
+function updateServerGroupBadge(srv) {
+  const el = document.getElementById('server-group-badge');
+  if (!el) return;
+
+  const group = (srv && srv.group ? srv.group : '').toString().toLowerCase();
+  if (!group) {
+    el.classList.add('hidden');
+    el.textContent = '';
+    return;
+  }
+
+  const key = SERVER_GROUP_NAMES[group] ? group : 'free';
+  el.className = 'group-badge group-' + key;
+  el.textContent = SERVER_GROUP_NAMES[group] || group.toUpperCase();
 }
 
 // 记录并应用服务器选择（按账号保存，下次登录自动选中）
@@ -997,6 +1063,7 @@ function applyServerSelection(srv) {
     if (ridx >= 0) {
       document.getElementById('server-select').value = ridx;
       selectedServer = servers[ridx];
+      updateServerGroupBadge(selectedServer);
     }
     return;
   }
@@ -1006,6 +1073,7 @@ function applyServerSelection(srv) {
 
   selectedServer = srv;
   currentServerId = srv.id;
+  updateServerGroupBadge(srv);
   saveAccountServer(currentIdentity, srv.id);
   saveSelectedServerId(srv.id);
 
