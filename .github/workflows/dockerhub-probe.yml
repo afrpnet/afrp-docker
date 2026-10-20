@@ -1,4 +1,4 @@
-name: Probe Docker Hub Logo Field
+name: Probe Docker Hub Org Endpoints
 
 on:
   workflow_dispatch:
@@ -11,17 +11,18 @@ jobs:
         env:
           DU: ${{ secrets.DOCKER_USERNAME }}
           DP: ${{ secrets.DOCKER_PASSWORD }}
-          LOGO: https://raw.githubusercontent.com/afrpnet/afrp-docker/master/logo.png
         run: |
           TOKEN=$(curl -s -X POST https://hub.docker.com/v2/users/login/ \
             -H 'Content-Type: application/json' \
             -d "{\"username\":\"$DU\",\"password\":\"$DP\"}" | jq -r .token)
-          echo "=== PATCH logo_url + short_description ==="
-          curl -s -X PATCH https://hub.docker.com/v2/repositories/afrp/afrp/ \
-            -H "Authorization: JWT $TOKEN" -H 'Content-Type: application/json' \
-            -d "{\"logo_url\":\"$LOGO\",\"short_description\":\"Docker 版 AFRP 内网穿透客户端：浏览器管理 frpc，一键部署\"}" \
-            | jq '{description, short_description, logo_url, logo, source}'
-          echo "=== GET repo (public) ==="
-          curl -s https://hub.docker.com/v2/repositories/afrp/afrp/ | jq '{description, short_description, logo_url, logo}'
-          echo "=== GET repo (auth) ==="
-          curl -s -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/repositories/afrp/afrp/ | jq '{description, short_description, logo_url, logo}'
+          echo "=== whoami ==="
+          curl -s -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/users/me/ | jq '{username,type,full_name,gravatar_email,gravatar_url,subscription,scopes}'
+          echo "=== me raw keys ==="
+          curl -s -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/users/me/ | jq -r 'keys | join(",")'
+          echo "=== POST /v2/orgs/ (empty body, endpoint check) ==="
+          curl -s -o /tmp/o -w "status=%{http_code}\n" -X POST https://hub.docker.com/v2/orgs/ \
+            -H "Authorization: JWT $TOKEN" -H 'Content-Type: application/json' -d '{}'
+          head -c 400 /tmp/o; echo
+          echo "=== GET /v2/orgs/afrpnet/ (exists?) ==="
+          curl -s -o /tmp/g -w "status=%{http_code}\n" -H "Authorization: JWT $TOKEN" https://hub.docker.com/v2/orgs/afrpnet/
+          head -c 300 /tmp/g; echo
