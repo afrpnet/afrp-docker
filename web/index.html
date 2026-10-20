@@ -154,6 +154,7 @@ pre { background: #263238; color: #aed581; padding: 15px; border-radius: 4px; ov
       </select>
       <button class="secondary" onclick="refreshServers()" style="padding: 10px 15px; white-space: nowrap;">&#x1F504; 刷新</button>
     </div>
+    <div id="server-hint" class="hidden" style="font-size: 12px; color: #888; margin-top: 8px;">连接中不可切换服务器，请先断开连接。</div>
 
     <h2 style="margin-top: 20px;">Client Secret</h2>
     <div id="secret-display">
@@ -273,6 +274,8 @@ let currentSecret = '';
 let currentIdentity = '';
 let currentPassword = '';
 let currentSite = 'https://www.afrp.net';
+let frpcRunning = false;
+let currentServerId = 0;
 
 // ==================== 页面切换 ====================
 
@@ -737,6 +740,9 @@ async function doLogin() {
     servers = data.servers || [];
     renderServers(servers);
 
+    // 先同步 frpc 运行状态，运行中不允许切换服务器
+    await refreshStatus();
+
     // 恢复该账号上次选择的服务器，没有则默认第一个
     const restored = restoreServerSelection(servers, data.saved_server_id);
     if (restored) {
@@ -759,7 +765,6 @@ async function doLogin() {
     Promise.all([
       loadSecret(),
       loadTunnels(),
-      refreshStatus(),
       refreshLog(),
       loadMembership()
     ]).then(() => {
@@ -785,6 +790,8 @@ function logout() {
   selectedServer = null;
   servers = [];
   currentSecret = '';
+  frpcRunning = false;
+  updateServerSelectState();
 
   // 清空表单
   document.getElementById('identity').value = '';
@@ -831,7 +838,22 @@ function onServerSelectChange() {
 // 记录并应用服务器选择（按账号保存，下次登录自动选中）
 function applyServerSelection(srv) {
   if (!srv) return;
+
+  // 运行中不允许切换服务器，只回显当前连接的服务器
+  if (frpcRunning) {
+    const ridx = servers.findIndex(s => s.id === currentServerId);
+    if (ridx >= 0) {
+      document.getElementById('server-select').value = ridx;
+      selectedServer = servers[ridx];
+    }
+    return;
+  }
+
+  const idx = servers.findIndex(s => s.id === srv.id);
+  if (idx >= 0) document.getElementById('server-select').value = idx;
+
   selectedServer = srv;
+  currentServerId = srv.id;
   saveAccountServer(currentIdentity, srv.id);
   saveSelectedServerId(srv.id);
 
@@ -881,6 +903,7 @@ function saveSelectedServerId(serverId) {
 function restoreServerSelection(serverList, loginServerId) {
   if (!serverList || serverList.length === 0) return null;
   const candidates = [];
+  if (frpcRunning && currentServerId) candidates.push(currentServerId);
   const accId = getAccountServer(currentIdentity);
   if (accId) candidates.push(accId);
   if (loginServerId) candidates.push(loginServerId);
@@ -943,6 +966,7 @@ async function refreshServers() {
     if (data.ok && data.servers) {
       servers = data.servers;
       renderServers(servers);
+      await refreshStatus();
       const restored = restoreServerSelection(servers, data.saved_server_id);
       if (restored) {
         applyServerSelection(restored);
@@ -1097,6 +1121,18 @@ async function refreshStatus() {
     el.className = 'status stopped';
     el.textContent = '已停止';
   }
+  frpcRunning = !!data.running;
+  if (data.server_id) currentServerId = data.server_id;
+  updateServerSelectState();
+}
+
+// 运行中锁定服务器选择（与 App 一致：连接中不可切换服务器）
+function updateServerSelectState() {
+  const select = document.getElementById('server-select');
+  const hint = document.getElementById('server-hint');
+  if (!select) return;
+  select.disabled = frpcRunning;
+  if (hint) hint.classList.toggle('hidden', !frpcRunning);
 }
 
 async function startFrpc() {
@@ -1326,6 +1362,9 @@ window.addEventListener('load', async () => {
         document.getElementById('password').value = acc.password;
       }
 
+      // 先同步 frpc 运行状态，运行中不允许切换服务器
+      await refreshStatus();
+
       // 恢复服务器列表
       if (savedConfig) {
         const config = JSON.parse(savedConfig);
@@ -1348,7 +1387,6 @@ window.addEventListener('load', async () => {
       Promise.all([
         loadSecret(),
         loadTunnels(),
-        refreshStatus(),
         refreshLog(),
         loadMembership()
       ]).then(() => {

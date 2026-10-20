@@ -885,7 +885,13 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	running := frpcCmd != nil && frpcCmd.Process != nil
 	frpcMu.Unlock()
 
-	json.NewEncoder(w).Encode(map[string]bool{"running": running})
+	resp := map[string]interface{}{"running": running}
+	// 当前账号选中的服务器，前端运行中据此回显并锁定下拉框
+	cfg := loadConfig()
+	if id := cfg.getAccountServer(cfg.User); id > 0 {
+		resp["server_id"] = id
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 func handleLog(w http.ResponseWriter, r *http.Request) {
