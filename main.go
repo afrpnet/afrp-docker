@@ -263,7 +263,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		cfg.AuthOIDCScope = oidcConfig.Scope
 	}
 	
-	if len(result.Servers) > 0 {
+	// 只在没有配置服务器时，才默认使用第一个服务器
+	if cfg.ServerAddr == "" && len(result.Servers) > 0 {
 		cfg.ServerAddr = result.Servers[0].Addr
 		cfg.ServerPort = result.Servers[0].Port
 	}

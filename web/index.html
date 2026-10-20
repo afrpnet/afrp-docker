@@ -461,6 +461,48 @@ async function doLogin() {
     servers = data.servers || [];
     renderServers(servers);
 
+    // 恢复之前选择的服务器（如果有），否则默认选择第一个
+    let serverRestored = false;
+    const savedConfig = localStorage.getItem('afrp_config');
+    if (savedConfig) {
+      try {
+        const config = JSON.parse(savedConfig);
+        if (config.selected_server_id && config.servers) {
+          const idx = servers.findIndex(s => s.id === config.selected_server_id);
+          if (idx >= 0) {
+            selectedServer = servers[idx];
+            document.getElementById('server-select').value = idx;
+            serverRestored = true;
+            // 更新后端配置
+            fetch('/api/config', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                server_addr: selectedServer.addr,
+                server_port: selectedServer.port
+              })
+            });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to restore server selection:', e);
+      }
+    }
+
+    // 如果没有恢复成功，默认选择第一个服务器
+    if (!serverRestored && servers.length > 0) {
+      selectedServer = servers[0];
+      document.getElementById('server-select').value = 0;
+      fetch('/api/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          server_addr: selectedServer.addr,
+          server_port: selectedServer.port
+        })
+      });
+    }
+
     // 保存配置到 localStorage
     saveLoginState(identity, site, servers);
 
@@ -471,9 +513,9 @@ async function doLogin() {
       updateSecretDisplay();
     }
 
-    // 并行加载所有数据
+    // 并行加载所有数据（总是加载 secret 以确保显示正确）
     Promise.all([
-      data.secret ? Promise.resolve() : loadSecret(),
+      loadSecret(),
       loadTunnels(),
       refreshStatus(),
       refreshLog()
@@ -526,10 +568,6 @@ function renderServers(serverList) {
     const option = document.createElement('option');
     option.value = idx;
     option.textContent = `${srv.name || ('#' + srv.id)} (${srv.addr}:${srv.port})${srv.location ? ' · ' + srv.location : ''}`;
-    if (idx === 0) {
-      option.selected = true;
-      selectedServer = srv;
-    }
     select.appendChild(option);
   });
 }
@@ -989,11 +1027,13 @@ window.addEventListener('load', async () => {
           servers = config.servers;
           renderServers(servers);
 
+          let serverRestored = false;
           if (config.selected_server_id) {
             const idx = servers.findIndex(s => s.id === config.selected_server_id);
             if (idx >= 0) {
               selectedServer = servers[idx];
               document.getElementById('server-select').value = idx;
+              serverRestored = true;
               fetch('/api/config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -1003,6 +1043,20 @@ window.addEventListener('load', async () => {
                 })
               });
             }
+          }
+
+          // 如果没有恢复成功，默认选择第一个服务器
+          if (!serverRestored && servers.length > 0) {
+            selectedServer = servers[0];
+            document.getElementById('server-select').value = 0;
+            fetch('/api/config', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                server_addr: selectedServer.addr,
+                server_port: selectedServer.port
+              })
+            });
           }
         }
       }
