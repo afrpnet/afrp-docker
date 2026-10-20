@@ -1,8 +1,11 @@
 #!/bin/bash
 # afrp-web Docker 容器更新脚本
-# 用法：ssh root@43.132.165.232 'bash -s' < deploy.sh
+# 用法：ssh root@<服务器IP> 'bash -s' < deploy.sh
 
 set -e
+
+# 服务器地址，仅用于最后的提示信息；可由环境变量覆盖
+SERVER_IP="${SERVER_IP:-<服务器IP>}"
 
 echo "=== 更新 afrp-web 容器 ==="
 echo "当前时间: $(date)"
@@ -33,4 +36,4 @@ docker inspect afrp-web --format '{{json .Mounts}}'
 
 echo ""
 echo "=== 更新完成 ==="
-echo "访问 http://43.132.165.232:8000/ 验证"
+echo "访问 http://${SERVER_IP}:8000/ 验证"
