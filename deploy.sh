@@ -25,6 +25,7 @@ docker run -d \
   --name afrp-web \
   --restart unless-stopped \
   -p 8000:8000 \
+  -p 7400:7400 \
   -v afrp-data:/data \
   afrp/afrp:latest
 

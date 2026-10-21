@@ -228,6 +228,7 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
 /* 隧道来源徽章 */
 .src-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
 .src-badge.src-store { background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary); }
+.src-badge.src-toml { background: var(--purple-soft); color: var(--purple); border: 1px solid var(--purple); }
 .src-badge.src-off { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
 
 /* 用户信息卡片 */
@@ -1565,13 +1566,16 @@ function renderTunnels() {
     : 'afrp.net';
 
   let storeCount = 0;
+  let tomlCount = 0;
 
   tunnels.forEach((t, idx) => {
     const div = document.createElement('div');
     div.className = 'tunnel-item';
 
     const fromStore = t.source === 'store';
+    const fromToml = t.source === 'toml';
     if (fromStore) storeCount++;
+    if (fromToml) tomlCount++;
 
     let details = `${(t.type || '').toUpperCase()} ${t.localIp || ''}:${t.localPort || ''}`;
     if (t.type === 'http' || t.type === 'https') {
@@ -1589,6 +1593,9 @@ function renderTunnels() {
     let badges = '';
     if (fromStore) {
       badges += '<span class="src-badge src-store" title="最初由 frpc 管理面板创建，已并入此处，可直接编辑">管理面板</span>';
+    }
+    if (fromToml) {
+      badges += '<span class="src-badge src-toml" title="最初来自 frpc 配置文件，已并入此处，可直接编辑">配置文件</span>';
     }
     if (t.enabled === false) {
       badges += '<span class="src-badge src-off">已禁用</span>';
@@ -1610,8 +1617,15 @@ function renderTunnels() {
   });
 
   if (hint) {
+    const parts = [];
     if (storeCount > 0) {
-      hint.textContent = `其中 ${storeCount} 条隧道由 frpc 管理面板创建，已并入列表可直接编辑；面板里改动后点"刷新"即可看到最新记录。`;
+      parts.push(`${storeCount} 条由 frpc 管理面板创建`);
+    }
+    if (tomlCount > 0) {
+      parts.push(`${tomlCount} 条来自 frpc 配置文件`);
+    }
+    if (parts.length > 0) {
+      hint.textContent = `其中 ${parts.join('、')}，已并入列表可直接编辑；面板或配置文件里改动后点"刷新"即可看到最新记录。`;
       hint.classList.remove('hidden');
     } else {
       hint.classList.add('hidden');

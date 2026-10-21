@@ -179,7 +179,7 @@ func TestTunnelIncomplete(t *testing.T) {
 }
 
 func TestCommentTomlBlock(t *testing.T) {
-	block := tunnelTomlBlock(Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 80})
+	block := buildProxyBlock(Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 80}, nil)
 	got := commentTomlBlock(block)
 	want := "# [[proxies]]\n# name = \"a\"\n# type = \"tcp\"\n# localIP = \"127.0.0.1\"\n# localPort = 80\n"
 	if got != want {

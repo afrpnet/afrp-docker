@@ -156,12 +156,13 @@ type Tunnel struct {
 	Subdomain    string `json:"subdomain,omitempty"`
 	CustomDomain string `json:"customDomain,omitempty"`
 	SecretKey    string `json:"secretKey,omitempty"`
+	Origin       string `json:"origin,omitempty"` // toml 表示最初来自 frpc 配置文件
 }
 
 // 页面展示用的隧道：额外标明来源，store 表示来自 frpc 管理面板的存储文件
 type TunnelView struct {
 	Tunnel
-	Source  string `json:"source"` // config | store
+	Source  string `json:"source"` // config | store | toml
 	Enabled bool   `json:"enabled"`
 }
 
@@ -1109,14 +1110,55 @@ func storeProxyEnabled(p map[string]interface{}) bool {
 	return true
 }
 
-// 合并网页配置与管理面板存储文件里的隧道
-// 管理面板新增的隧道会写进 config.json，之后就能在网页里直接编辑
+// 把 frpc.toml 里的隧道并进配置
+// 面板里直接改过配置文件时以文件为准；skip 里的名字不并入（刚被删除的隧道）
+func mergeTomlTunnels(cfg Config, blocks []tomlProxyBlock, skip map[string]bool) (Config, bool) {
+	changed := false
+
+	for _, b := range blocks {
+		// 整段注释掉的代理保留在列表里待修复，不覆盖已有配置
+		if b.Commented {
+			continue
+		}
+
+		t := b.Tunnel
+		if t.Name == "" || skip[t.Name] {
+			continue
+		}
+		// frpc 没写 localIP 时默认用 127.0.0.1
+		if t.LocalIP == "" {
+			t.LocalIP = "127.0.0.1"
+		}
+
+		if idx := tunnelIndex(cfg.Tunnels, t.Name); idx >= 0 {
+			// 保留来源标记，网页里改过的隧道不该变成配置文件来源
+			t.Origin = cfg.Tunnels[idx].Origin
+			if !tunnelEqual(cfg.Tunnels[idx], t) {
+				cfg.Tunnels[idx] = t
+				changed = true
+			}
+			continue
+		}
+
+		// 配置文件里新增的隧道，写进 config.json 后就能在网页里编辑
+		t.Origin = "toml"
+		cfg.Tunnels = append(cfg.Tunnels, t)
+		changed = true
+	}
+
+	return cfg, changed
+}
+
+// 合并网页配置、frpc 配置文件与管理面板存储文件里的隧道
+// 面板新增的隧道、配置文件里新增的隧道都会写进 config.json，之后就能在网页里直接编辑
 func mergeTunnels(cfg Config) []TunnelView {
+	// 配置文件里的隧道：面板里改过配置的以文件为准
+	cfg, changed := mergeTomlTunnels(cfg, readTomlProxyBlocks(), nil)
+
 	storeProxies := readStoreProxies(cfg)
 	storeNames := make(map[string]bool)
 	storeEnabled := make(map[string]bool)
 	invalid := make([]string, 0)
-	changed := false
 
 	for _, p := range storeProxies {
 		t := storeProxyToTunnel(p)
@@ -1140,6 +1182,7 @@ func mergeTunnels(cfg Config) []TunnelView {
 
 		if idx := tunnelIndex(cfg.Tunnels, t.Name); idx >= 0 {
 			// 面板里的记录是最新的，覆盖 config.json 里的同名隧道
+			t.Origin = cfg.Tunnels[idx].Origin
 			if !tunnelEqual(cfg.Tunnels[idx], t) {
 				cfg.Tunnels[idx] = t
 				changed = true
@@ -1167,6 +1210,8 @@ func mergeTunnels(cfg Config) []TunnelView {
 		if storeNames[t.Name] {
 			src = "store"
 			enabled = storeEnabled[t.Name]
+		} else if t.Origin == "toml" {
+			src = "toml"
 		}
 		views = append(views, TunnelView{Tunnel: t, Source: src, Enabled: enabled})
 	}
@@ -1226,6 +1271,8 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 		found := false
 		for i, t := range cfg.Tunnels {
 			if t.Name == req.Name {
+				// 保留来源标记，改过之后仍然知道这条隧道最初来自哪里
+				req.Origin = t.Origin
 				cfg.Tunnels[i] = req
 				found = true
 				break
@@ -1243,7 +1290,8 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 		updateStoreProxy(cfg, req)
 
 		// 重新生成配置并重启 frpc，让新隧道立即生效
-		writeFrpcConfig(cfg)
+		// 刚改的这条以网页里的为准，不被配置文件里的旧记录覆盖
+		writeFrpcConfigExcept(cfg, map[string]bool{req.Name: true})
 		restarted := restartFrpc(false)
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "restarted": restarted})
 
@@ -1271,7 +1319,8 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 		// 面板里的隧道要从存储文件里一并删掉，否则 frpc 重启后还会加载
 		removeStoreProxy(cfg, req.Name)
 
-		writeFrpcConfig(cfg)
+		// 配置文件里的同名隧道也要删掉，否则重新生成配置时又被并回来
+		writeFrpcConfigExcept(cfg, map[string]bool{req.Name: true})
 		restarted := restartFrpc(false)
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "restarted": restarted})
 	}
@@ -1427,7 +1476,16 @@ func saveConfig(cfg Config) {
 	os.WriteFile(configFile, data, 0644)
 }
 
-func writeFrpcConfig(cfg Config) {
+// 重新生成 frpc.toml
+// except 里的隧道名不并入磁盘配置（刚删除的隧道要真正删掉）
+func writeFrpcConfigExcept(cfg Config, except map[string]bool) {
+	// 磁盘配置里的隧道先并进 config.json，面板里新增的隧道才不会被覆盖掉
+	origBlocks := readTomlProxyBlocks()
+	cfg, changed := mergeTomlTunnels(cfg, origBlocks, except)
+	if changed {
+		saveConfig(cfg)
+	}
+
 	// 使用当前账号的密钥，避免切号后用错账号
 	secret := cfg.currentSecret()
 	toml := fmt.Sprintf(`# 由 AFRP Web UI 自动生成，请勿手动修改（修改会在下次连接时覆盖）
@@ -1470,9 +1528,17 @@ path = "%s"
 `, escapeToml(storeFilePath(cfg)))
 	}
 
+	// 磁盘上已有的代理段，面板里设置的其它字段写回时保留
+	origByName := make(map[string]*tomlProxyBlock, len(origBlocks))
+	for i := range origBlocks {
+		if name := origBlocks[i].Tunnel.Name; name != "" {
+			origByName[name] = &origBlocks[i]
+		}
+	}
+
 	// 添加隧道配置；字段不全的整段注释掉，避免 frpc 启动时报错
 	for _, t := range cfg.Tunnels {
-		block := tunnelTomlBlock(t)
+		block := buildProxyBlock(t, origByName[t.Name])
 		if tunnelIncomplete(t) {
 			toml += "\n" + commentTomlBlock(block)
 			continue
@@ -1483,35 +1549,71 @@ path = "%s"
 	os.WriteFile(frpcConfigFile, []byte(toml), 0644)
 }
 
-// 隧道的 frpc.toml 配置块
-func tunnelTomlBlock(t Tunnel) string {
-	block := fmt.Sprintf(`[[proxies]]
-name = "%s"
-type = "%s"
-localIP = "%s"
-localPort = %d
-`, escapeToml(t.Name), escapeToml(t.Type), escapeToml(t.LocalIP), t.LocalPort)
+// 重新生成 frpc.toml
+func writeFrpcConfig(cfg Config) {
+	writeFrpcConfigExcept(cfg, nil)
+}
 
-	if tunnelNeedsDomain(t.Type) {
-		if t.CustomDomain != "" {
-			block += fmt.Sprintf(`customDomains = ["%s"]
-`, escapeToml(t.CustomDomain))
-		} else if t.Subdomain != "" {
-			block += fmt.Sprintf(`subdomain = "%s"
-`, escapeToml(t.Subdomain))
+// 隧道的 frpc.toml 配置块
+// orig 是磁盘配置文件里原来的段，面板里设置的其它字段（transport 等）照旧保留
+func buildProxyBlock(t Tunnel, orig *tomlProxyBlock) string {
+	block := "[[proxies]]\n"
+	for _, key := range managedProxyKeyOrder {
+		val, ok := managedProxyValue(t, key)
+		if !ok {
+			continue
 		}
-	} else if t.Type == "stcp" || t.Type == "sudp" || t.Type == "xtcp" {
-		if t.SecretKey != "" {
-			block += fmt.Sprintf(`secretKey = "%s"
-`, escapeToml(t.SecretKey))
-		}
-	} else {
-		if t.RemotePort != nil && *t.RemotePort > 0 {
-			block += fmt.Sprintf(`remotePort = %d
-`, *t.RemotePort)
+		block += key + " = " + val + "\n"
+	}
+
+	if orig != nil {
+		for _, line := range orig.Lines {
+			key := tomlKeyOf(line)
+			if key == "" || managedProxyKeys[key] {
+				continue
+			}
+			block += line + "\n"
 		}
 	}
 	return block
+}
+
+// 隧道某个字段的 TOML 值；这个字段不需要写出来时返回 false
+func managedProxyValue(t Tunnel, key string) (string, bool) {
+	switch key {
+	case "name":
+		return `"` + escapeToml(t.Name) + `"`, true
+	case "type":
+		return `"` + escapeToml(t.Type) + `"`, true
+	case "localIP":
+		return `"` + escapeToml(t.LocalIP) + `"`, true
+	case "localPort":
+		return fmt.Sprintf("%d", t.LocalPort), true
+	case "remotePort":
+		if tunnelNeedsDomain(t.Type) || t.Type == "stcp" || t.Type == "sudp" || t.Type == "xtcp" {
+			return "", false
+		}
+		if t.RemotePort == nil || *t.RemotePort <= 0 {
+			return "", false
+		}
+		return fmt.Sprintf("%d", *t.RemotePort), true
+	case "subdomain":
+		if !tunnelNeedsDomain(t.Type) || t.CustomDomain != "" || t.Subdomain == "" {
+			return "", false
+		}
+		return `"` + escapeToml(t.Subdomain) + `"`, true
+	case "customDomains":
+		if !tunnelNeedsDomain(t.Type) || t.CustomDomain == "" {
+			return "", false
+		}
+		return `["` + escapeToml(t.CustomDomain) + `"]`, true
+	case "secretKey":
+		if t.Type != "stcp" && t.Type != "sudp" && t.Type != "xtcp" || t.SecretKey == "" {
+			return "", false
+		}
+		return `"` + escapeToml(t.SecretKey) + `"`, true
+	}
+	return "", false
 }
 
 // 隧道配置是否不完整；不完整的配置不能交给 frpc，否则启动会直接失败
@@ -1549,23 +1651,39 @@ func escapeToml(s string) string {
 	return s
 }
 
-// 从 TOML 内容里解析 [[proxies]] 段，转成隧道列表
-// 整段被注释掉的代理也会解析出来，保留在列表里但仍以注释形式写回
-func parseTomlProxies(content string) ([]Tunnel, error) {
+// frpc.toml 里一个 [[proxies]] 段
+type tomlProxyBlock struct {
+	Tunnel     Tunnel
+	Commented bool
+	// 段内原始行，写回时用来保留面板里设置的其它字段
+	Lines []string
+}
+
+// 网页端会改写的代理字段
+var managedProxyKeys = map[string]bool{
+	"name": true, "type": true, "localIP": true, "localPort": true,
+	"remotePort": true, "subdomain": true, "customDomains": true, "secretKey": true,
+}
+
+// 代理字段的输出顺序
+var managedProxyKeyOrder = []string{
+	"name", "type", "localIP", "localPort", "remotePort", "subdomain", "customDomains", "secretKey",
+}
+
+// 解析 TOML 内容里的 [[proxies]] 段，保留原始行
+func parseTomlProxyBlocks(content string) []tomlProxyBlock {
 	lines := strings.Split(content, "\n")
 	var (
-		proxies       []Tunnel
-		cur           Tunnel
-		inProxy       bool
-		curCommented  bool
-		commentedList []bool
+		blocks       []tomlProxyBlock
+		cur          tomlProxyBlock
+		inProxy      bool
+		curCommented bool
 	)
 
 	flush := func() {
 		if inProxy {
-			proxies = append(proxies, cur)
-			commentedList = append(commentedList, curCommented)
-			cur = Tunnel{}
+			blocks = append(blocks, cur)
+			cur = tomlProxyBlock{}
 		}
 	}
 
@@ -1585,6 +1703,7 @@ func parseTomlProxies(content string) ([]Tunnel, error) {
 			flush()
 			inProxy = strings.HasPrefix(line, "[[") && strings.TrimSpace(strings.Trim(line, "[]")) == "proxies"
 			curCommented = commented
+			cur.Commented = commented
 			continue
 		}
 
@@ -1621,39 +1740,73 @@ func parseTomlProxies(content string) ([]Tunnel, error) {
 			continue
 		}
 
-		switch key {
-		case "name":
-			cur.Name = parseTomlScalar(val)
-		case "type":
-			cur.Type = parseTomlScalar(val)
-		case "localIP":
-			cur.LocalIP = parseTomlScalar(val)
-		case "localPort":
-			cur.LocalPort = atoiOrZero(parseTomlScalar(val))
-		case "remotePort":
-			if n := atoiOrZero(parseTomlScalar(val)); n > 0 {
-				cur.RemotePort = &n
-			}
-		case "subdomain":
-			cur.Subdomain = parseTomlScalar(val)
-		case "secretKey":
-			cur.SecretKey = parseTomlScalar(val)
-		case "customDomains":
-			if domains := parseTomlStringArray(val); len(domains) > 0 {
-				cur.CustomDomain = domains[0]
-			}
-		}
+		cur.Lines = append(cur.Lines, key+" = "+val)
+		applyTomlProxyKey(&cur.Tunnel, key, val)
 	}
 	flush()
 
-	for i, t := range proxies {
+	return blocks
+}
+
+// 读取磁盘上的 frpc.toml，解析出 [[proxies]] 段
+func readTomlProxyBlocks() []tomlProxyBlock {
+	data, err := os.ReadFile(frpcConfigFile)
+	if err != nil {
+		return nil
+	}
+	return parseTomlProxyBlocks(string(data))
+}
+
+// 一行 TOML 里的字段名
+func tomlKeyOf(line string) string {
+	eq := strings.Index(line, "=")
+	if eq < 0 {
+		return ""
+	}
+	return strings.TrimSpace(line[:eq])
+}
+
+// 把 TOML 里的一个字段写进隧道
+func applyTomlProxyKey(t *Tunnel, key, val string) {
+	switch key {
+	case "name":
+		t.Name = parseTomlScalar(val)
+	case "type":
+		t.Type = parseTomlScalar(val)
+	case "localIP":
+		t.LocalIP = parseTomlScalar(val)
+	case "localPort":
+		t.LocalPort = atoiOrZero(parseTomlScalar(val))
+	case "remotePort":
+		if n := atoiOrZero(parseTomlScalar(val)); n > 0 {
+			t.RemotePort = &n
+		}
+	case "subdomain":
+		t.Subdomain = parseTomlScalar(val)
+	case "secretKey":
+		t.SecretKey = parseTomlScalar(val)
+	case "customDomains":
+		if domains := parseTomlStringArray(val); len(domains) > 0 {
+			t.CustomDomain = domains[0]
+		}
+	}
+}
+
+// 从 TOML 内容里解析 [[proxies]] 段，转成隧道列表
+// 整段被注释掉的代理也会解析出来，保留在列表里但仍以注释形式写回
+func parseTomlProxies(content string) ([]Tunnel, error) {
+	blocks := parseTomlProxyBlocks(content)
+
+	proxies := make([]Tunnel, 0, len(blocks))
+	for _, b := range blocks {
 		// 注释掉的代理允许不完整，写回时仍是注释状态
-		if commentedList[i] {
-			continue
+		if !b.Commented {
+			t := b.Tunnel
+			if t.Name == "" || t.Type == "" || t.LocalIP == "" || t.LocalPort == 0 {
+				return nil, fmt.Errorf("隧道配置不完整（name/type/localIP/localPort 必填）")
+			}
 		}
-		if t.Name == "" || t.Type == "" || t.LocalIP == "" || t.LocalPort == 0 {
-			return nil, fmt.Errorf("隧道配置不完整（name/type/localIP/localPort 必填）")
-		}
+		proxies = append(proxies, b.Tunnel)
 	}
 	return proxies, nil
 }
