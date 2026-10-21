@@ -87,6 +87,7 @@ docker run --rm -v afrp-data:/data -v $(pwd):/backup alpine tar xzf /backup/afrp
 |------|------|
 | `/data/config/config.json` | 主配置：账号、服务器、密钥、隧道列表 |
 | `/data/config/frpc.toml` | 自动生成的 frpc 配置，启动时直接使用 |
+| `/data/config/frpc_store.json` | 管理面板的代理存储文件（启用管理面板后生成） |
 | `/data/logs/frpc.log` | frpc 运行日志 |
 
 `config.json` 中几个关键字段：
@@ -113,9 +114,10 @@ docker build -t afrp/afrp .
 | `/api/login` | POST | 官网账号密码登录，返回服务器列表、账号上次选择的服务器等 |
 | `/api/user` | GET | 当前登录用户信息（含 OIDC 认证状态、密钥是否已设置） |
 | `/api/config` | GET | 获取当前配置 |
-| `/api/config` | POST | 保存配置（服务器地址/端口/ID、Client Secret） |
+| `/api/config` | POST | 保存配置（服务器地址/端口/ID、Client Secret、管理面板参数） |
 | `/api/secret` | GET | 获取当前账号的 Client Secret |
 | `/api/secret` | POST | 保存或轮换 Client Secret（`action: save` / `rotate`） |
+| `/api/frpc-toml` | GET | 查看当前生成的 frpc.toml 内容 |
 | `/api/tunnels` | GET | 隧道列表 |
 | `/api/tunnels` | POST | 新增或更新隧道（按名称覆盖） |
 | `/api/tunnels` | DELETE | 删除隧道（按名称） |
