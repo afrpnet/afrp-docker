@@ -647,7 +647,12 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		cfg := loadConfig()
-		json.NewEncoder(w).Encode(cfg)
+		// 配置文件里改过的面板账号密码以文件为准，页面显示随之改变
+		merged, changed := mergeTomlPanelAccount(cfg)
+		if changed {
+			saveConfig(merged)
+		}
+		json.NewEncoder(w).Encode(merged)
 	case "POST":
 		var updates map[string]interface{}
 		if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
@@ -657,6 +662,9 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		
 		// 加载现有配置
 		cfg := loadConfig()
+
+		// 配置文件里改过的面板账号密码先同步进来，避免被旧值覆盖
+		cfg, _ = mergeTomlPanelAccount(cfg)
 
 		// 只更新传入的字段
 		if addr, ok := updates["server_addr"].(string); ok {
@@ -822,6 +830,12 @@ func handleFrpcToml(w http.ResponseWriter, r *http.Request) {
 		if err := os.WriteFile(frpcConfigFile, []byte(req.Content), 0644); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
 			return
+		}
+
+		// 文件里改过的面板账号密码同步回 config.json，显示随之改变
+		if merged, changed := mergeTomlPanelAccount(cfg); changed {
+			cfg = merged
+			saveConfig(cfg)
 		}
 
 		// 重启 frpc 让新配置生效；不重新生成文件，保留用户手写的内容
@@ -1143,6 +1157,58 @@ func mergeTomlTunnels(cfg Config, blocks []tomlProxyBlock, skip map[string]bool)
 		// 配置文件里新增的隧道，写进 config.json 后就能在网页里编辑
 		t.Origin = "toml"
 		cfg.Tunnels = append(cfg.Tunnels, t)
+		changed = true
+	}
+
+	return cfg, changed
+}
+
+// 读取磁盘配置里的管理面板账号密码
+// 用户直接改过 frpc.toml 时以文件为准
+func readTomlPanelAccount() (string, string, bool, bool) {
+	data, err := os.ReadFile(frpcConfigFile)
+	if err != nil {
+		return "", "", false, false
+	}
+
+	var user, password string
+	var hasUser, hasPassword bool
+
+	for _, line := range strings.Split(string(data), "\n") {
+		raw := strings.TrimSpace(line)
+		if raw == "" || strings.HasPrefix(raw, "#") {
+			continue
+		}
+		raw = strings.TrimSpace(stripTomlComment(raw))
+		eq := strings.Index(raw, "=")
+		if eq < 0 {
+			continue
+		}
+		key := strings.TrimSpace(raw[:eq])
+		val := parseTomlScalar(strings.TrimSpace(raw[eq+1:]))
+		switch key {
+		case "webServer.user":
+			user, hasUser = val, true
+		case "webServer.password":
+			password, hasPassword = val, true
+		}
+	}
+
+	return user, password, hasUser, hasPassword
+}
+
+// 配置文件里的面板账号密码同步进配置
+// 用户在 frpc.toml 里改过账号密码后，页面显示随之改变
+func mergeTomlPanelAccount(cfg Config) (Config, bool) {
+	user, password, hasUser, hasPassword := readTomlPanelAccount()
+	changed := false
+
+	if hasUser && user != cfg.WebServerUser {
+		cfg.WebServerUser = user
+		changed = true
+	}
+	if hasPassword && password != cfg.WebServerPassword {
+		cfg.WebServerPassword = password
 		changed = true
 	}
 
@@ -1482,6 +1548,14 @@ func writeFrpcConfigExcept(cfg Config, except map[string]bool) {
 	// 磁盘配置里的隧道先并进 config.json，面板里新增的隧道才不会被覆盖掉
 	origBlocks := readTomlProxyBlocks()
 	cfg, changed := mergeTomlTunnels(cfg, origBlocks, except)
+
+	// 用户在配置文件里改过的面板账号密码同样以文件为准
+	merged, panelChanged := mergeTomlPanelAccount(cfg)
+	if panelChanged {
+		cfg = merged
+		changed = true
+	}
+
 	if changed {
 		saveConfig(cfg)
 	}

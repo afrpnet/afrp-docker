@@ -1545,6 +1545,8 @@ async function loadTunnels() {
     console.log('Tunnels loaded:', data);
     tunnels = data.tunnels || [];
     renderTunnels();
+    // 配置文件里改过面板账号密码后，刷新时一并更新提示
+    loadPanelConfig();
   } catch (err) {
     console.error('Failed to load tunnels:', err);
   }

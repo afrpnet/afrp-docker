@@ -110,6 +110,7 @@ docker run --rm -v afrp-data:/data -v $(pwd):/backup alpine tar xzf /backup/afrp
 - 「隧道管理」列表会合并三处记录：网页里添加的隧道、面板里创建的隧道、`frpc.toml` 里的隧道，点「刷新」即可看到最新改动
 - 面板创建的隧道会并入 `config.json` 的隧道列表，之后可以直接在网页里编辑、删除；改动同时写回存储文件，frpc 侧保持一致
 - 面板的「配置」页直接改写 `/data/config/frpc.toml`，改动后点「刷新」，这些隧道同样会并入列表，标有「配置文件」角标
+- 在 `frpc.toml` 里改了 `webServer.user` / `webServer.password`，账号密码会同步回 `config.json`，页面提示里的账号密码随之改变，重新生成配置时也不会被旧值覆盖
 - 名称相同的隧道以面板记录为准，避免 frpc 因代理重名启动失败
 - 隧道增删改后会重新生成 `frpc.toml` 并重启 frpc，改动立即生效
 - 重新生成 `frpc.toml` 时会保留面板设置的其它字段（如 `transport.useEncryption`），不会因为在网页里编辑就丢失

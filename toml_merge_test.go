@@ -243,3 +243,67 @@ localPort = 8080
 		t.Errorf("补齐默认值后不应判为不完整: %+v", views[0].Tunnel)
 	}
 }
+
+// 配置文件里改过面板账号密码后要同步进配置
+func TestMergeTomlPanelAccount(t *testing.T) {
+	useTempPaths(t)
+
+	saveConfig(Config{WebServerEnabled: true, WebServerUser: "old", WebServerPassword: "oldpass"})
+	writeDiskToml(t, `webServer.addr = "0.0.0.0"
+webServer.port = 7400
+webServer.user = "newuser"
+webServer.password = "newpass"
+`)
+
+	cfg, changed := mergeTomlPanelAccount(loadConfig())
+	if !changed {
+		t.Fatal("应检测到账号密码变化")
+	}
+	if cfg.WebServerUser != "newuser" || cfg.WebServerPassword != "newpass" {
+		t.Errorf("账号密码没同步: %+v", cfg)
+	}
+}
+
+// 重新生成配置时保留用户改过的面板账号密码，并同步回 config.json
+func TestWriteFrpcConfigKeepsPanelAccount(t *testing.T) {
+	useTempPaths(t)
+
+	saveConfig(Config{WebServerEnabled: true, WebServerUser: "old", WebServerPassword: "oldpass"})
+	writeDiskToml(t, `webServer.addr = "0.0.0.0"
+webServer.port = 7400
+webServer.user = "newuser"
+webServer.password = "newpass"
+`)
+
+	writeFrpcConfig(loadConfig())
+
+	data, _ := os.ReadFile(frpcConfigFile)
+	content := string(data)
+	if !strings.Contains(content, `webServer.user = "newuser"`) {
+		t.Errorf("账号被旧值覆盖:\n%s", content)
+	}
+	if !strings.Contains(content, `webServer.password = "newpass"`) {
+		t.Errorf("密码被旧值覆盖:\n%s", content)
+	}
+
+	saved := loadConfig()
+	if saved.WebServerUser != "newuser" || saved.WebServerPassword != "newpass" {
+		t.Errorf("config.json 未同步: %+v", saved)
+	}
+}
+
+// 配置文件里没有面板段时保持原有账号密码
+func TestMergeTomlPanelAccountKeepsConfig(t *testing.T) {
+	useTempPaths(t)
+
+	saveConfig(Config{WebServerEnabled: true, WebServerUser: "u", WebServerPassword: "p"})
+	writeDiskToml(t, "serverAddr = \"x\"\n")
+
+	cfg, changed := mergeTomlPanelAccount(loadConfig())
+	if changed {
+		t.Error("配置文件里没有面板段时不应有变化")
+	}
+	if cfg.WebServerUser != "u" || cfg.WebServerPassword != "p" {
+		t.Errorf("账号密码不该被改动: %+v", cfg)
+	}
+}
