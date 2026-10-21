@@ -386,41 +386,11 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
     <button onclick="startFrpc()">启动</button>
     <button onclick="stopFrpc()" class="danger">停止</button>
     <button onclick="refreshStatus()">刷新</button>
-  </div>
-
-  <!-- frpc 管理面板卡片 -->
-  <div id="panel-card" class="card">
-    <div class="card-head">
-      <h2>frpc 管理面板</h2>
-    </div>
-    <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
-      <input type="checkbox" id="panel-enabled" style="width: auto; margin: 0;" onchange="togglePanelFields()">
-      <span>启用管理面板</span>
+    <label style="display: flex; align-items: center; gap: 6px; font-weight: normal; font-size: 12px; margin-top: 10px; color: var(--text-muted);">
+      <input type="checkbox" id="panel-enabled" style="width: auto; margin: 0;" onchange="togglePanel()">
+      <span>启用 frpc 管理面板（自动生成账号密码）</span>
     </label>
-    <div id="panel-fields" class="hidden" style="margin-top: 12px;">
-      <label>监听地址
-        <input type="text" id="panel-addr" placeholder="留空使用默认 0.0.0.0" autocomplete="off">
-      </label>
-      <label>端口
-        <input type="number" id="panel-port" placeholder="留空使用默认 7400" min="1" max="65535" oninput="updatePanelHint()">
-      </label>
-      <label>用户名
-        <input type="text" id="panel-user" placeholder="留空则无需登录" autocomplete="off">
-      </label>
-      <label>密码
-        <input type="password" id="panel-password" placeholder="留空则无需登录" autocomplete="new-password">
-      </label>
-      <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
-        <input type="checkbox" id="panel-pprof" style="width: auto; margin: 0;">
-        <span>启用 pprof 性能分析</span>
-      </label>
-      <label>代理存储文件
-        <input type="text" id="panel-store-path" placeholder="留空使用默认 /data/config/frpc_store.json" autocomplete="off">
-      </label>
-      <div class="hint-sm" style="margin-bottom: 10px;">配置写入 frpc.toml 的 webServer 段，保存后需重启 frpc 生效。</div>
-      <button onclick="savePanelConfig()">保存面板配置</button>
-    </div>
-    <div id="panel-hint" class="hint-sm" style="margin-top: 12px;"></div>
+    <div id="panel-hint" class="hint-sm" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 14px;"></div>
   </div>
 
   <!-- 日志卡片 -->
@@ -1420,7 +1390,11 @@ async function saveToml() {
 
     closeTomlModal();
     await loadTunnels();
-    alert('已保存，隧道列表已更新');
+    if (data.restarted) {
+      refreshStatus();
+      refreshLog();
+    }
+    alert(data.restarted ? '已保存，隧道列表已更新，frpc 已重启' : '已保存，隧道列表已更新');
   } catch (e) {
     err.textContent = '保存失败：' + e.message;
     err.classList.remove('hidden');
@@ -1435,64 +1409,53 @@ async function loadPanelConfig() {
     if (!res.ok) return;
     const cfg = await res.json();
     document.getElementById('panel-enabled').checked = !!cfg.web_server_enabled;
-    document.getElementById('panel-addr').value = cfg.web_server_addr || '';
-    document.getElementById('panel-port').value = cfg.web_server_port || '';
-    document.getElementById('panel-user').value = cfg.web_server_user || '';
-    document.getElementById('panel-password').value = cfg.web_server_password || '';
-    document.getElementById('panel-pprof').checked = !!cfg.web_server_pprof;
-    document.getElementById('panel-store-path').value = cfg.store_path || '';
-    togglePanelFields();
+    renderPanelHint(cfg);
   } catch (err) {
     console.error('Failed to load panel config:', err);
   }
 }
 
-function togglePanelFields() {
-  const enabled = document.getElementById('panel-enabled').checked;
-  document.getElementById('panel-fields').classList.toggle('hidden', !enabled);
-  updatePanelHint();
-}
-
-function updatePanelHint() {
+// 渲染管理面板访问提示：地址 / 账号 / 密码
+function renderPanelHint(cfg) {
   const el = document.getElementById('panel-hint');
-  if (!document.getElementById('panel-enabled').checked) {
-    el.textContent = '管理面板未启用。';
-    el.style.color = '';
+  if (!cfg || !cfg.web_server_enabled) {
+    el.innerHTML = '';
+    el.classList.add('hidden');
     return;
   }
-  const port = parseInt(document.getElementById('panel-port').value, 10) || 7400;
+  el.classList.remove('hidden');
   const host = location.hostname || '<本机IP>';
-  el.textContent = `面板访问地址：http://${host}:${port}`;
-  el.style.color = document.getElementById('panel-user').value.trim() ? '' : 'var(--danger)';
+  const port = cfg.web_server_port || 7400;
+  const url = 'http://' + host + ':' + port;
+  const user = cfg.web_server_user || '';
+  const pass = cfg.web_server_password || '';
+  el.innerHTML =
+    '<span>管理面板：<a href="' + url + '" target="_blank" rel="noreferrer">' + url + '</a></span>' +
+    '<span>账号：<code>' + escapeHtml(user) + '</code></span>' +
+    '<span>密码：<code>' + escapeHtml(pass) + '</code></span>';
 }
 
-async function savePanelConfig() {
-  const payload = {
-    web_server_enabled: document.getElementById('panel-enabled').checked,
-    web_server_addr: document.getElementById('panel-addr').value.trim(),
-    web_server_port: parseInt(document.getElementById('panel-port').value, 10) || 0,
-    web_server_user: document.getElementById('panel-user').value.trim(),
-    web_server_password: document.getElementById('panel-password').value,
-    web_server_pprof: document.getElementById('panel-pprof').checked,
-    store_path: document.getElementById('panel-store-path').value.trim()
-  };
-
+async function togglePanel() {
+  const box = document.getElementById('panel-enabled');
+  const enabled = box.checked;
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
+      body: JSON.stringify({ web_server_enabled: enabled })
     });
     const data = await res.json().catch(() => ({}));
-    if (data.ok) {
-      updatePanelHint();
-      alert('已保存，重启 frpc 后生效');
-    } else {
-      alert('保存失败');
+    if (!data.ok) throw new Error(data.error || '保存失败');
+    renderPanelHint(data);
+    if (data.restarted) {
+      refreshStatus();
+      refreshLog();
     }
+    alert(data.web_server_enabled ? '管理面板已启用并重启 frpc' : '管理面板已关闭并重启 frpc');
   } catch (err) {
-    console.error('Failed to save panel config:', err);
-    alert('保存失败：' + err.message);
+    box.checked = !enabled;
+    renderPanelHint({ web_server_enabled: !enabled });
+    alert('操作失败：' + err.message);
   }
 }
 

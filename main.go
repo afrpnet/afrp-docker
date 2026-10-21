@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -161,8 +162,9 @@ type TunnelView struct {
 }
 
 var (
-	frpcCmd *exec.Cmd
-	frpcMu  sync.Mutex
+	frpcCmd  *exec.Cmd
+	frpcDone chan struct{}
+	frpcMu   sync.Mutex
 )
 
 func main() {
@@ -685,7 +687,7 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			panelChanged = true
 		}
 		if v, ok := updates["web_server_user"].(string); ok {
-			cfg.WebServerUser = v
+			cfg.WebServerUser = strings.TrimSpace(v)
 			panelChanged = true
 		}
 		if v, ok := updates["web_server_password"].(string); ok {
@@ -701,6 +703,22 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			panelChanged = true
 		}
 
+		// 启用管理面板时补齐默认配置并随机生成账号密码
+		if cfg.WebServerEnabled {
+			if cfg.WebServerAddr == "" {
+				cfg.WebServerAddr = "0.0.0.0"
+			}
+			if cfg.WebServerPort <= 0 || cfg.WebServerPort > 65535 {
+				cfg.WebServerPort = 7400
+			}
+			if cfg.WebServerUser == "" {
+				cfg.WebServerUser = randomPanelUser()
+			}
+			if cfg.WebServerPassword == "" {
+				cfg.WebServerPassword = randomPanelPassword()
+			}
+		}
+
 		saveConfig(cfg)
 
 		// 重新生成 frpc 配置（服务器、密钥或面板配置变化）
@@ -710,9 +728,49 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			writeFrpcConfig(cfg)
 			log.Printf("Regenerated frpc config")
 		}
-		
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+
+		// 面板开关变化后重启 frpc，让新配置生效
+		restarted := false
+		if _, ok := updates["web_server_enabled"]; ok {
+			restarted = restartFrpc(true)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":                  true,
+			"web_server_enabled":  cfg.WebServerEnabled,
+			"web_server_addr":     cfg.WebServerAddr,
+			"web_server_port":     cfg.WebServerPort,
+			"web_server_user":     cfg.WebServerUser,
+			"web_server_password": cfg.WebServerPassword,
+			"restarted":           restarted,
+		})
 	}
+}
+
+// 随机生成管理面板账号
+func randomPanelUser() string {
+	return "frp" + randomPanelSecret(6)
+}
+
+// 随机生成管理面板密码
+func randomPanelPassword() string {
+	return randomPanelSecret(16)
+}
+
+// 随机字符集：去掉容易混淆的 0/O/1/l
+const panelSecretChars = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+func randomPanelSecret(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		log.Printf("生成随机密码失败: %v", err)
+		return ""
+	}
+	out := make([]byte, n)
+	for i, b := range buf {
+		out[i] = panelSecretChars[int(b)%len(panelSecretChars)]
+	}
+	return string(out)
 }
 
 // 查看 / 保存 frpc.toml
@@ -760,7 +818,11 @@ func handleFrpcToml(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "count": len(proxies)})
+
+		// 重启 frpc 让新配置生效；不重新生成文件，保留用户手写的内容
+		restarted := restartFrpc(false)
+
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "count": len(proxies), "restarted": restarted})
 
 	default:
 		http.Error(w, "method not allowed", 405)
@@ -1033,21 +1095,31 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := loadConfig()
-	if !cfg.Enabled {
-		json.NewEncoder(w).Encode(map[string]string{"error": "not enabled"})
-		return
-	}
-	if cfg.currentSecret() == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "尚未设置服务器密钥，请先设置或生成 Client Secret"})
+	writeFrpcConfig(cfg)
+
+	if err := startFrpcProcess(cfg); err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
 
-	writeFrpcConfig(cfg)
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// 启动 frpc 进程（调用方需持有 frpcMu 锁）
+func startFrpcProcess(cfg Config) error {
+	if frpcCmd != nil && frpcCmd.Process != nil {
+		return fmt.Errorf("already running")
+	}
+	if !cfg.Enabled {
+		return fmt.Errorf("not enabled")
+	}
+	if cfg.currentSecret() == "" {
+		return fmt.Errorf("尚未设置服务器密钥，请先设置或生成 Client Secret")
+	}
 
 	logF, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+		return err
 	}
 
 	cmd := exec.Command(frpcBinary, "-c", frpcConfigFile)
@@ -1055,13 +1127,15 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = logF
 
 	if err := cmd.Start(); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
+		return err
 	}
 	frpcCmd = cmd
 
+	done := make(chan struct{})
+	frpcDone = done
 	go func() {
 		cmd.Wait()
+		close(done)
 		frpcMu.Lock()
 		// 只有当前进程仍是这个时才清理，避免误清掉重新启动的实例
 		if frpcCmd == cmd {
@@ -1069,8 +1143,7 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		}
 		frpcMu.Unlock()
 	}()
-
-	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	return nil
 }
 
 func handleStop(w http.ResponseWriter, r *http.Request) {
@@ -1085,9 +1158,39 @@ func handleStop(w http.ResponseWriter, r *http.Request) {
 // 停止正在运行的 frpc 进程（调用方需持有 frpcMu 锁）
 func stopFrpc() {
 	if frpcCmd != nil && frpcCmd.Process != nil {
-		frpcCmd.Process.Kill()
+		cmd := frpcCmd
+		done := frpcDone
 		frpcCmd = nil
+		frpcDone = nil
+		cmd.Process.Kill()
+		if done != nil {
+			// 等进程真正退出，端口才会释放
+			<-done
+		}
 	}
+}
+
+// 重启 frpc；仅在运行中重启。regenerate 为 true 时按当前配置重新生成 frpc.toml
+func restartFrpc(regenerate bool) bool {
+	frpcMu.Lock()
+	defer frpcMu.Unlock()
+
+	if frpcCmd == nil || frpcCmd.Process == nil {
+		return false
+	}
+
+	stopFrpc()
+
+	cfg := loadConfig()
+	if regenerate {
+		writeFrpcConfig(cfg)
+	}
+	if err := startFrpcProcess(cfg); err != nil {
+		log.Printf("重启 frpc 失败: %v", err)
+		return false
+	}
+	log.Printf("frpc restarted")
+	return true
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request) {

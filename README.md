@@ -38,14 +38,16 @@ docker run -d \
 
 > ⚠️ `-v afrp-data:/data` 必须挂载。配置、Client Secret、隧道都存放在 `/data` 下，漏挂卷会新建匿名卷，表现为「重启后又要重新登录、密钥又变成未设置」。
 
+> 💡 若要使用 frpc 自带的管理面板，需额外映射端口 `-p 7400:7400`，否则容器外无法访问面板。
+
 ## 使用说明
 
 1. **登录**：输入官网账号和密码，勾选「记住我」可保存账号以便下次一键登录
 2. **服务器**：选择节点。系统会按账号记住这次选择，下次登录自动回填；frpc 运行期间下拉框锁定，需先停止才能切换
 3. **Client Secret**：首次使用需粘贴官网「连接说明」里的密钥，或在页面点击「生成新密钥」由官网接口签发。密钥按账号保存，切换账号时自动取用对应密钥并写入 `frpc.toml`
-4. **隧道**：点击「+ 添加隧道」填写名称、类型、本地 IP/端口等信息；「隧道管理」标题右侧的「配置文件」可打开 `frpc.toml` 直接编辑，保存后文件里的隧道会同步到隧道列表
+4. **隧道**：点击「+ 添加隧道」填写名称、类型、本地 IP/端口等信息；「隧道管理」标题右侧的「配置文件」可打开 `frpc.toml` 直接编辑，保存后文件里的隧道会同步到隧道列表，并自动重启 frpc
 5. **启动**：点击「启动」按钮，frpc 开始运行；「停止」可断开
-6. **管理面板**：「frpc 管理面板」卡片可开启 frpc 自带的 Web 面板，填写用户名和密码（监听地址、端口、代理存储文件留空即用默认），保存后写入 `frpc.toml` 的 `webServer` 段和 `[store]` 段并提示面板访问地址（Docker 部署需额外映射该端口，如 `-p 7400:7400`）；保存后重启 frpc 生效
+6. **管理面板**：「状态」下方的小字勾选项「启用 frpc 管理面板」可开启 frpc 自带的 Web 面板，勾选后自动生成随机账号密码、写入 `frpc.toml` 的 `webServer` 段和 `[store]` 段并重启 frpc，下方会显示面板地址、账号和密码（Docker 部署需额外映射该端口，如 `-p 7400:7400`）
 7. **监控**：查看运行状态与实时日志
 8. **主题**：登录卡片右上角（登录后位于「退出登录」旁）可切换深色 / 浅色，默认跟随系统，选择结果记在浏览器本地
 
@@ -100,7 +102,9 @@ docker run --rm -v afrp-data:/data -v $(pwd):/backup alpine tar xzf /backup/afrp
 
 ### 管理面板与隧道管理
 
-启用管理面板后，`frpc.toml` 会写入 `[store]` 段，frpc 会在代理存储文件 `/data/config/frpc_store.json` 中记录面板里增删改的隧道。
+「状态」下方勾选「启用 frpc 管理面板」后，页面自动生成随机账号密码并写入 `frpc.toml` 的 `webServer` 段与 `[store]` 段，同时重启 frpc 使配置生效；下方提示里会给出面板地址、账号和密码。
+
+启用管理面板后，frpc 会在代理存储文件 `/data/config/frpc_store.json` 中记录面板里增删改的隧道。
 
 - 「隧道管理」列表会合并两处记录：网页里添加的隧道和面板里创建的隧道，点「刷新」即可看到面板的最新改动
 - 面板创建的隧道带「管理面板」标记，由 frpc 自己维护，需要修改请到面板操作；网页里添加的隧道仍可增删改
@@ -122,11 +126,11 @@ docker build -t afrp/afrp .
 | `/api/login` | POST | 官网账号密码登录，返回服务器列表、账号上次选择的服务器等 |
 | `/api/user` | GET | 当前登录用户信息（含 OIDC 认证状态、密钥是否已设置） |
 | `/api/config` | GET | 获取当前配置 |
-| `/api/config` | POST | 保存配置（服务器地址/端口/ID、Client Secret、管理面板参数） |
+| `/api/config` | POST | 保存配置（服务器地址/端口/ID、Client Secret、管理面板开关）；开关变化时自动补齐默认配置、随机生成账号密码并重启 frpc |
 | `/api/secret` | GET | 获取当前账号的 Client Secret |
 | `/api/secret` | POST | 保存或轮换 Client Secret（`action: save` / `rotate`） |
 | `/api/frpc-toml` | GET | 读取当前 frpc.toml 内容 |
-| `/api/frpc-toml` | POST | 保存 frpc.toml，并把文件里的 `[[proxies]]` 同步到隧道列表 |
+| `/api/frpc-toml` | POST | 保存 frpc.toml，把文件里的 `[[proxies]]` 同步到隧道列表，并重启 frpc |
 | `/api/tunnels` | GET | 隧道列表（网页配置 + 管理面板存储文件里的隧道） |
 | `/api/tunnels` | POST | 新增或更新隧道（按名称覆盖） |
 | `/api/tunnels` | DELETE | 删除隧道（按名称） |
