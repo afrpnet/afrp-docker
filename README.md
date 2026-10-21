@@ -46,9 +46,8 @@ docker run -d \
 4. **隧道**：点击「+ 添加隧道」填写名称、类型、本地 IP/端口等信息
 5. **启动**：点击「启动」按钮，frpc 开始运行；「停止」可断开
 6. **管理面板**：「frpc 管理面板」卡片可开启 frpc 自带的 Web 面板，填写用户名和密码（监听地址、端口、代理存储文件留空即用默认），保存后写入 `frpc.toml` 的 `webServer` 段和 `[store]` 段并提示面板访问地址（Docker 部署需额外映射该端口，如 `-p 7400:7400`）；保存后重启 frpc 生效
-7. **配置查看**：「frpc.toml」卡片实时显示当前生成的配置文件内容，页面刷新后自动同步
-8. **监控**：查看运行状态与实时日志
-9. **主题**：登录卡片右上角（登录后位于「退出登录」旁）可切换深色 / 浅色，默认跟随系统，选择结果记在浏览器本地
+7. **监控**：查看运行状态与实时日志
+8. **主题**：登录卡片右上角（登录后位于「退出登录」旁）可切换深色 / 浅色，默认跟随系统，选择结果记在浏览器本地
 
 ## 升级
 
@@ -99,6 +98,15 @@ docker run --rm -v afrp-data:/data -v $(pwd):/backup alpine tar xzf /backup/afrp
 | `account_servers` | 账号 → 最后选择的服务器 ID，登录时自动恢复 |
 | `client_secret` | 当前账号的密钥（旧版单账号配置，升级后会自动归档进 `account_secrets`） |
 
+### 管理面板与隧道管理
+
+启用管理面板后，`frpc.toml` 会写入 `[store]` 段，frpc 会在代理存储文件 `/data/config/frpc_store.json` 中记录面板里增删改的隧道。
+
+- 「隧道管理」列表会合并两处记录：网页里添加的隧道和面板里创建的隧道，点「刷新」即可看到面板的最新改动
+- 面板创建的隧道带「管理面板」标记，由 frpc 自己维护，需要修改请到面板操作；网页里添加的隧道仍可增删改
+- 名称相同的隧道以面板记录为准，生成 `frpc.toml` 时会跳过网页里的同名项，避免 frpc 因代理重名启动失败
+- 未启用管理面板时，frpc 不加载代理存储文件，列表只显示网页里的隧道
+
 ### frpc 版本
 
 frpc 二进制直接从 `fatedier/frpc:v0.71.1` 官方镜像复制，无需手动下载，保证版本正确性和兼容性。如需升级版本，修改 `Dockerfile` 中的 `FROM fatedier/frpc:vX.Y.Z` 后重新构建：
@@ -117,8 +125,7 @@ docker build -t afrp/afrp .
 | `/api/config` | POST | 保存配置（服务器地址/端口/ID、Client Secret、管理面板参数） |
 | `/api/secret` | GET | 获取当前账号的 Client Secret |
 | `/api/secret` | POST | 保存或轮换 Client Secret（`action: save` / `rotate`） |
-| `/api/frpc-toml` | GET | 查看当前生成的 frpc.toml 内容 |
-| `/api/tunnels` | GET | 隧道列表 |
+| `/api/tunnels` | GET | 隧道列表（网页配置 + 管理面板存储文件里的隧道） |
 | `/api/tunnels` | POST | 新增或更新隧道（按名称覆盖） |
 | `/api/tunnels` | DELETE | 删除隧道（按名称） |
 | `/api/start` | POST | 启动 frpc |

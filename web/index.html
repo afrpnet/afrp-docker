@@ -225,6 +225,11 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
 .group-badge.group-pro { background: var(--gb-pro-bg); color: var(--gb-pro-fg); border-color: var(--gb-pro-bd); }
 .group-badge.group-admin { background: var(--gb-admin-bg); color: var(--gb-admin-fg); border-color: var(--gb-admin-bd); }
 
+/* 隧道来源徽章 */
+.src-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; margin-left: 6px; vertical-align: middle; white-space: nowrap; }
+.src-badge.src-store { background: var(--primary-soft); color: var(--primary); border: 1px solid var(--primary); }
+.src-badge.src-off { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger); }
+
 /* 用户信息卡片 */
 .user-info { display: flex; align-items: center; gap: 16px; }
 .user-avatar { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--avatar-bg); display: flex; align-items: center; justify-content: center; font-size: 24px; color: var(--text-faint); overflow: hidden; flex-shrink: 0; }
@@ -371,6 +376,7 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
       <button class="secondary" onclick="showAddTunnelModal()">+ 添加隧道</button>
       <button class="secondary" onclick="loadTunnels()">&#x1F504; 刷新</button>
     </div>
+    <div id="tunnel-hint" class="hint-sm hidden" style="margin-top: 8px;"></div>
 
     <h2 style="margin-top: 20px;">状态</h2>
     <div id="status" class="status stopped">未知</div>
@@ -412,15 +418,6 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
       <button onclick="savePanelConfig()">保存面板配置</button>
     </div>
     <div id="panel-hint" class="hint-sm" style="margin-top: 12px;"></div>
-  </div>
-
-  <!-- frpc.toml 卡片 -->
-  <div id="toml-card" class="card">
-    <div class="card-head">
-      <h2>frpc.toml</h2>
-      <button class="secondary" onclick="loadFrpcToml()" style="padding: 6px 12px; font-size: 12px;">&#x1F504; 刷新</button>
-    </div>
-    <pre id="frpc-toml">加载中...</pre>
   </div>
 
   <!-- 日志卡片 -->
@@ -742,8 +739,7 @@ function enterMainPage() {
     refreshStatus(),
     refreshLog(),
     loadMembership(),
-    loadPanelConfig(),
-    loadFrpcToml()
+    loadPanelConfig()
   ]).catch(err => console.error('Failed to load data:', err));
 }
 
@@ -1017,8 +1013,7 @@ async function doLogin() {
       loadTunnels(),
       refreshLog(),
       loadMembership(),
-      loadPanelConfig(),
-      loadFrpcToml()
+      loadPanelConfig()
     ]).then(() => {
       console.log('All data loaded successfully');
     }).catch(err => {
@@ -1360,21 +1355,6 @@ async function confirmRotateSecret() {
   }
 }
 
-// ==================== frpc.toml ====================
-
-async function loadFrpcToml() {
-  const el = document.getElementById('frpc-toml');
-  try {
-    const res = await fetch('/api/frpc-toml');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    el.textContent = data.content && data.content.trim() ? data.content : '尚未生成 frpc.toml（连接一次或保存一次配置后生成）';
-  } catch (err) {
-    console.error('Failed to load frpc.toml:', err);
-    el.textContent = '读取 frpc.toml 失败：' + err.message;
-  }
-}
-
 // ==================== frpc 管理面板 ====================
 
 async function loadPanelConfig() {
@@ -1434,7 +1414,6 @@ async function savePanelConfig() {
     const data = await res.json().catch(() => ({}));
     if (data.ok) {
       updatePanelHint();
-      loadFrpcToml();
       alert('已保存，重启 frpc 后生效');
     } else {
       alert('保存失败');
@@ -1537,10 +1516,12 @@ async function loadTunnels() {
 
 function renderTunnels() {
   const container = document.getElementById('tunnel-list');
+  const hint = document.getElementById('tunnel-hint');
   container.innerHTML = '';
 
   if (tunnels.length === 0) {
     container.innerHTML = '<div class="muted-sm">暂无隧道，点击"添加隧道"创建</div>';
+    if (hint) hint.classList.add('hidden');
     return;
   }
 
@@ -1548,11 +1529,16 @@ function renderTunnels() {
     ? selectedServer.subdomain.replace(/^\*\./, '')
     : 'afrp.net';
 
+  let storeCount = 0;
+
   tunnels.forEach((t, idx) => {
     const div = document.createElement('div');
     div.className = 'tunnel-item';
 
-    let details = `${t.type.toUpperCase()} ${t.localIp}:${t.localPort}`;
+    const fromStore = t.source === 'store';
+    if (fromStore) storeCount++;
+
+    let details = `${(t.type || '').toUpperCase()} ${t.localIp || ''}:${t.localPort || ''}`;
     if (t.type === 'http' || t.type === 'https') {
       if (t.customDomain) {
         details += ` \u2192 ${t.customDomain}`;
@@ -1565,18 +1551,40 @@ function renderTunnels() {
       details += t.remotePort ? ` \u2192 :${t.remotePort}` : '';
     }
 
+    let badges = '';
+    if (fromStore) {
+      badges += '<span class="src-badge src-store" title="由 frpc 管理面板创建">管理面板</span>';
+    }
+    if (t.enabled === false) {
+      badges += '<span class="src-badge src-off">已禁用</span>';
+    }
+
+    // 管理面板里的隧道归 frpc 自己维护，网页只展示不改动
+    const actions = fromStore
+      ? '<span class="hint-sm">请在管理面板中修改</span>'
+      : `<button class="secondary" onclick="editTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">编辑</button>
+         <button class="danger" onclick="deleteTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">删除</button>`;
+
     div.innerHTML = `
       <div class="tunnel-info">
-        <div class="tunnel-name">${escapeHtml(t.name)}</div>
+        <div class="tunnel-name">${escapeHtml(t.name)}${badges}</div>
         <div class="tunnel-details">${details}</div>
       </div>
       <div class="tunnel-actions">
-        <button class="secondary" onclick="editTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">编辑</button>
-        <button class="danger" onclick="deleteTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">删除</button>
+        ${actions}
       </div>
     `;
     container.appendChild(div);
   });
+
+  if (hint) {
+    if (storeCount > 0) {
+      hint.textContent = `其中 ${storeCount} 条隧道由 frpc 管理面板创建，修改后点"刷新"即可看到最新记录。`;
+      hint.classList.remove('hidden');
+    } else {
+      hint.classList.add('hidden');
+    }
+  }
 }
 
 function escapeHtml(text) {
@@ -1749,8 +1757,7 @@ window.addEventListener('load', async () => {
         loadTunnels(),
         refreshLog(),
         loadMembership(),
-        loadPanelConfig(),
-        loadFrpcToml()
+        loadPanelConfig()
       ]).then(() => {
         console.log('All restored data loaded successfully');
       }).catch(err => {

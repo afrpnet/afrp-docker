@@ -152,6 +152,13 @@ type Tunnel struct {
 	SecretKey    string `json:"secretKey,omitempty"`
 }
 
+// 页面展示用的隧道：额外标明来源，store 表示来自 frpc 管理面板的存储文件
+type TunnelView struct {
+	Tunnel
+	Source  string `json:"source"` // config | store
+	Enabled bool   `json:"enabled"`
+}
+
 var (
 	frpcCmd *exec.Cmd
 	frpcMu  sync.Mutex
@@ -169,7 +176,6 @@ func main() {
 	http.HandleFunc("/api/plans", handlePlans)
 	http.HandleFunc("/api/config", handleConfig)
 	http.HandleFunc("/api/secret", handleSecret)
-	http.HandleFunc("/api/frpc-toml", handleFrpcToml)
 	http.HandleFunc("/api/tunnels", handleTunnels)
 	http.HandleFunc("/api/start", handleStart)
 	http.HandleFunc("/api/stop", handleStop)
@@ -707,20 +713,6 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// 返回当前生成的 frpc.toml 内容，供页面查看
-func handleFrpcToml(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		http.Error(w, "method not allowed", 405)
-		return
-	}
-	data, err := os.ReadFile(frpcConfigFile)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "content": "", "exists": false})
-		return
-	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "content": string(data), "exists": true})
-}
-
 func handleSecret(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
@@ -806,17 +798,109 @@ func callRotateSecretAPI(site, loginToken string) (string, error) {
 	return result.Data.ClientSecret, nil
 }
 
+// frpc 管理面板的代理存储文件路径
+func storeFilePath(cfg Config) string {
+	p := strings.TrimSpace(cfg.StorePath)
+	if p == "" {
+		return filepath.Join(configDir, "frpc_store.json")
+	}
+	return p
+}
+
+// 读取管理面板存储文件里的代理配置
+// 未启用管理面板时 frpc 不会加载 [store] 段，存储文件里的隧道也不会生效，故不参与合并
+func readStoreProxies(cfg Config) []map[string]interface{} {
+	if !cfg.WebServerEnabled {
+		return nil
+	}
+	data, err := os.ReadFile(storeFilePath(cfg))
+	if err != nil {
+		return nil
+	}
+	var stored struct {
+		Proxies []map[string]interface{} `json:"proxies"`
+	}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		log.Printf("解析代理存储文件失败: %v", err)
+		return nil
+	}
+	return stored.Proxies
+}
+
+// 存储文件里已有的代理名称
+func storeProxyNames(cfg Config) map[string]bool {
+	names := make(map[string]bool)
+	for _, p := range readStoreProxies(cfg) {
+		if name, ok := p["name"].(string); ok && name != "" {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+// 存储文件里的代理配置转成页面用的隧道
+func storeProxyToTunnel(p map[string]interface{}) Tunnel {
+	t := Tunnel{}
+	t.Name, _ = p["name"].(string)
+	t.Type, _ = p["type"].(string)
+	t.LocalIP, _ = p["localIP"].(string)
+	t.Subdomain, _ = p["subdomain"].(string)
+	t.SecretKey, _ = p["secretKey"].(string)
+	if v, ok := p["localPort"].(float64); ok {
+		t.LocalPort = int(v)
+	}
+	if v, ok := p["remotePort"].(float64); ok && v > 0 {
+		rp := int(v)
+		t.RemotePort = &rp
+	}
+	if domains, ok := p["customDomains"].([]interface{}); ok && len(domains) > 0 {
+		if d, ok := domains[0].(string); ok {
+			t.CustomDomain = d
+		}
+	}
+	return t
+}
+
+// 存储文件里的代理是否处于启用状态
+func storeProxyEnabled(p map[string]interface{}) bool {
+	if v, ok := p["enabled"].(bool); ok {
+		return v
+	}
+	return true
+}
+
+// 合并网页配置与管理面板存储文件里的隧道，同名以管理面板为准
+func mergeTunnels(cfg Config) []TunnelView {
+	views := make([]TunnelView, 0, len(cfg.Tunnels))
+	storeNames := make(map[string]bool)
+	for _, p := range readStoreProxies(cfg) {
+		t := storeProxyToTunnel(p)
+		if t.Name == "" {
+			continue
+		}
+		storeNames[t.Name] = true
+		views = append(views, TunnelView{Tunnel: t, Source: "store", Enabled: storeProxyEnabled(p)})
+	}
+	for _, t := range cfg.Tunnels {
+		if storeNames[t.Name] {
+			continue
+		}
+		views = append(views, TunnelView{Tunnel: t, Source: "config", Enabled: true})
+	}
+	return views
+}
+
 func handleTunnels(w http.ResponseWriter, r *http.Request) {
 	cfg := loadConfig()
-	
+
 	switch r.Method {
 	case "GET":
-		// 返回所有隧道
+		// 返回所有隧道：网页配置 + 管理面板存储文件里的
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"ok":      true,
-			"tunnels": cfg.Tunnels,
+			"tunnels": mergeTunnels(cfg),
 		})
-		
+
 	case "POST":
 		// 添加或更新隧道
 		var req Tunnel
@@ -824,13 +908,19 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "invalid request"})
 			return
 		}
-		
+
 		// 验证必填字段
 		if req.Name == "" || req.Type == "" || req.LocalIP == "" || req.LocalPort == 0 {
 			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "missing required fields"})
 			return
 		}
-		
+
+		// 管理面板里的隧道由 frpc 自己维护，网页不覆盖
+		if storeProxyNames(cfg)[req.Name] {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "该隧道已在管理面板中创建，请到管理面板修改"})
+			return
+		}
+
 		// 查找是否已存在同名隧道
 		found := false
 		for i, t := range cfg.Tunnels {
@@ -840,15 +930,15 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		
+
 		// 如果不存在，添加到列表
 		if !found {
 			cfg.Tunnels = append(cfg.Tunnels, req)
 		}
-		
+
 		saveConfig(cfg)
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
-		
+
 	case "DELETE":
 		// 删除隧道
 		var req struct {
@@ -858,7 +948,13 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "invalid request"})
 			return
 		}
-		
+
+		// 管理面板里的隧道由 frpc 自己维护，网页不删除
+		if storeProxyNames(cfg)[req.Name] {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "该隧道由管理面板管理，请在管理面板中删除"})
+			return
+		}
+
 		// 从列表中移除
 		newTunnels := make([]Tunnel, 0, len(cfg.Tunnels))
 		for _, t := range cfg.Tunnels {
@@ -867,7 +963,7 @@ func handleTunnels(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		cfg.Tunnels = newTunnels
-		
+
 		saveConfig(cfg)
 		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 	}
@@ -1019,18 +1115,18 @@ webServer.pprofEnable = %t
 `, escapeToml(addr), port, escapeToml(cfg.WebServerUser), escapeToml(cfg.WebServerPassword), cfg.WebServerPprof)
 
 		// 管理面板的代理存储文件；放在数据卷里，容器重建不丢
-		storePath := strings.TrimSpace(cfg.StorePath)
-		if storePath == "" {
-			storePath = filepath.Join(configDir, "frpc_store.json")
-		}
 		toml += fmt.Sprintf(`
 [store]
 path = "%s"
-`, escapeToml(storePath))
+`, escapeToml(storeFilePath(cfg)))
 	}
 
-	// 添加隧道配置
+	// 添加隧道配置；管理面板存储文件里已有的隧道由 frpc 自己加载，跳过避免同名
+	storeNames := storeProxyNames(cfg)
 	for _, t := range cfg.Tunnels {
+		if storeNames[t.Name] {
+			continue
+		}
 		toml += fmt.Sprintf(`
 [[proxies]]
 name = "%s"
