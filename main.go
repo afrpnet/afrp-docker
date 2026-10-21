@@ -39,6 +39,14 @@ type Config struct {
 	AccountServers map[string]int    `json:"account_servers,omitempty"` // 账号 -> 最后选择的服务器 ID
 	UserInfo     map[string]interface{} `json:"user_info,omitempty"` // 用户信息（头像、用户名、邮箱、角色等）
 	Tunnels      []Tunnel `json:"tunnels,omitempty"`
+
+	// frpc 自带的管理面板（frpc.toml 的 webServer 段）
+	WebServerEnabled  bool   `json:"web_server_enabled"`
+	WebServerAddr     string `json:"web_server_addr,omitempty"`
+	WebServerPort     int    `json:"web_server_port,omitempty"`
+	WebServerUser     string `json:"web_server_user,omitempty"`
+	WebServerPassword string `json:"web_server_password,omitempty"`
+	WebServerPprof    bool   `json:"web_server_pprof"`
 }
 
 // 账号密钥的存储键：官网账号名全局唯一，统一小写去空格
@@ -648,16 +656,42 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		if enabled, ok := updates["enabled"].(bool); ok {
 			cfg.Enabled = enabled
 		}
-		
+
+		// frpc 管理面板（webServer）配置
+		panelChanged := false
+		if v, ok := updates["web_server_enabled"].(bool); ok {
+			cfg.WebServerEnabled = v
+			panelChanged = true
+		}
+		if v, ok := updates["web_server_addr"].(string); ok {
+			cfg.WebServerAddr = strings.TrimSpace(v)
+			panelChanged = true
+		}
+		if v, ok := updates["web_server_port"].(float64); ok {
+			cfg.WebServerPort = int(v)
+			panelChanged = true
+		}
+		if v, ok := updates["web_server_user"].(string); ok {
+			cfg.WebServerUser = v
+			panelChanged = true
+		}
+		if v, ok := updates["web_server_password"].(string); ok {
+			cfg.WebServerPassword = v
+			panelChanged = true
+		}
+		if v, ok := updates["web_server_pprof"].(bool); ok {
+			cfg.WebServerPprof = v
+			panelChanged = true
+		}
+
 		saveConfig(cfg)
-		
-		// 重新生成 frpc 配置（服务器或密钥变化）
-		if _, hasAddr := updates["server_addr"]; hasAddr {
+
+		// 重新生成 frpc 配置（服务器、密钥或面板配置变化）
+		_, hasAddr := updates["server_addr"]
+		_, hasSecret := updates["client_secret"]
+		if hasAddr || hasSecret || panelChanged {
 			writeFrpcConfig(cfg)
-			log.Printf("Regenerated frpc config after server change")
-		} else if _, hasSecret := updates["client_secret"]; hasSecret {
-			writeFrpcConfig(cfg)
-			log.Printf("Regenerated frpc config after secret change")
+			log.Printf("Regenerated frpc config")
 		}
 		
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
@@ -942,6 +976,25 @@ auth.oidc.audience = "%s"
 auth.oidc.scope = "%s"
 `, cfg.ServerAddr, cfg.ServerPort, cfg.User, cfg.User, secret,
 		cfg.AuthOIDCTokenEndpoint, cfg.AuthOIDCAudience, cfg.AuthOIDCScope)
+
+	// frpc 管理面板（webServer）
+	if cfg.WebServerEnabled {
+		addr := strings.TrimSpace(cfg.WebServerAddr)
+		if addr == "" {
+			addr = "0.0.0.0"
+		}
+		port := cfg.WebServerPort
+		if port <= 0 || port > 65535 {
+			port = 7400
+		}
+		toml += fmt.Sprintf(`
+webServer.addr = "%s"
+webServer.port = %d
+webServer.user = "%s"
+webServer.password = "%s"
+webServer.pprofEnable = %t
+`, escapeToml(addr), port, escapeToml(cfg.WebServerUser), escapeToml(cfg.WebServerPassword), cfg.WebServerPprof)
+	}
 
 	// 添加隧道配置
 	for _, t := range cfg.Tunnels {
