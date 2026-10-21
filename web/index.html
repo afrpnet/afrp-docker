@@ -1588,16 +1588,13 @@ function renderTunnels() {
 
     let badges = '';
     if (fromStore) {
-      badges += '<span class="src-badge src-store" title="由 frpc 管理面板创建">管理面板</span>';
+      badges += '<span class="src-badge src-store" title="最初由 frpc 管理面板创建，已并入此处，可直接编辑">管理面板</span>';
     }
     if (t.enabled === false) {
       badges += '<span class="src-badge src-off">已禁用</span>';
     }
 
-    // 管理面板里的隧道归 frpc 自己维护，网页只展示不改动
-    const actions = fromStore
-      ? '<span class="hint-sm">请在管理面板中修改</span>'
-      : `<button class="secondary" onclick="editTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">编辑</button>
+    const actions = `<button class="secondary" onclick="editTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">编辑</button>
          <button class="danger" onclick="deleteTunnel(${idx})" style="padding: 5px 10px; font-size: 12px;">删除</button>`;
 
     div.innerHTML = `
@@ -1614,7 +1611,7 @@ function renderTunnels() {
 
   if (hint) {
     if (storeCount > 0) {
-      hint.textContent = `其中 ${storeCount} 条隧道由 frpc 管理面板创建，修改后点"刷新"即可看到最新记录。`;
+      hint.textContent = `其中 ${storeCount} 条隧道由 frpc 管理面板创建，已并入列表可直接编辑；面板里改动后点"刷新"即可看到最新记录。`;
       hint.classList.remove('hidden');
     } else {
       hint.classList.add('hidden');
@@ -1709,7 +1706,12 @@ async function saveTunnel(event) {
     if (data.ok) {
       closeTunnelModal();
       await loadTunnels();
-      alert(editName ? '隧道已更新' : '隧道已添加');
+      if (data.restarted) {
+        refreshStatus();
+        refreshLog();
+      }
+      const what = editName ? '隧道已更新' : '隧道已添加';
+      alert(data.restarted ? what + '，frpc 已重启' : what);
     } else {
       alert('保存失败：' + (data.error || '未知错误'));
     }
@@ -1734,7 +1736,11 @@ async function deleteTunnel(idx) {
 
     if (data.ok) {
       await loadTunnels();
-      alert('隧道已删除');
+      if (data.restarted) {
+        refreshStatus();
+        refreshLog();
+      }
+      alert(data.restarted ? '隧道已删除，frpc 已重启' : '隧道已删除');
     } else {
       alert('删除失败：' + (data.error || '未知错误'));
     }

@@ -108,3 +108,99 @@ func TestParseTomlProxiesIncomplete(t *testing.T) {
 		t.Fatal("expected error for incomplete proxy")
 	}
 }
+
+// 整段注释掉的代理也要能读回来，避免保存配置文件时丢失
+func TestParseTomlProxiesCommented(t *testing.T) {
+	content := `[[proxies]]
+name = "good"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8080
+
+# [[proxies]]
+# name = "broken"
+# type = "tcp"
+# localIP = "127.0.0.1"
+# localPort = 0
+`
+	proxies, err := parseTomlProxies(content)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(proxies) != 2 {
+		t.Fatalf("expected 2 proxies, got %d: %+v", len(proxies), proxies)
+	}
+	if proxies[1].Name != "broken" || proxies[1].LocalPort != 0 {
+		t.Errorf("commented proxy wrong: %+v", proxies[1])
+	}
+}
+
+// 正常块里的注释行不参与解析
+func TestParseTomlProxiesCommentInsideBlock(t *testing.T) {
+	content := `[[proxies]]
+name = "good"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8080
+# localPort = 9999
+`
+	proxies, err := parseTomlProxies(content)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	if len(proxies) != 1 {
+		t.Fatalf("expected 1 proxy, got %d", len(proxies))
+	}
+	if proxies[0].LocalPort != 8080 {
+		t.Errorf("commented key should be ignored: %+v", proxies[0])
+	}
+}
+
+func TestTunnelIncomplete(t *testing.T) {
+	cases := []struct {
+		name string
+		t    Tunnel
+		want bool
+	}{
+		{"完整", Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 80}, false},
+		{"缺名字", Tunnel{Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 80}, true},
+		{"缺类型", Tunnel{Name: "a", LocalIP: "127.0.0.1", LocalPort: 80}, true},
+		{"缺本地IP", Tunnel{Name: "a", Type: "tcp", LocalPort: 80}, true},
+		{"缺本地端口", Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1"}, true},
+		{"端口越界", Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 70000}, true},
+		{"http缺域名", Tunnel{Name: "a", Type: "http", LocalIP: "127.0.0.1", LocalPort: 80}, true},
+		{"http有域名", Tunnel{Name: "a", Type: "http", LocalIP: "127.0.0.1", LocalPort: 80, Subdomain: "x"}, false},
+	}
+	for _, c := range cases {
+		if got := tunnelIncomplete(c.t); got != c.want {
+			t.Errorf("%s: tunnelIncomplete = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestCommentTomlBlock(t *testing.T) {
+	block := tunnelTomlBlock(Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 80})
+	got := commentTomlBlock(block)
+	want := "# [[proxies]]\n# name = \"a\"\n# type = \"tcp\"\n# localIP = \"127.0.0.1\"\n# localPort = 80\n"
+	if got != want {
+		t.Errorf("commentTomlBlock =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestTunnelEqual(t *testing.T) {
+	rp := 8080
+	a := Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 80, RemotePort: &rp}
+	b := Tunnel{Name: "a", Type: "tcp", LocalIP: "127.0.0.1", LocalPort: 80, RemotePort: &rp}
+	if !tunnelEqual(a, b) {
+		t.Error("expected equal tunnels")
+	}
+	b.LocalPort = 81
+	if tunnelEqual(a, b) {
+		t.Error("expected different tunnels")
+	}
+	b.LocalPort = 80
+	b.RemotePort = nil
+	if tunnelEqual(a, b) {
+		t.Error("expected different tunnels when remotePort differs")
+	}
+}
