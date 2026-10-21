@@ -386,7 +386,7 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
     </div>
     <label style="display: flex; align-items: center; gap: 8px; font-weight: normal;">
       <input type="checkbox" id="panel-enabled" style="width: auto; margin: 0;" onchange="togglePanelFields()">
-      <span>启用管理面板（frpc 自带的 Web 面板，可查看代理状态）</span>
+      <span>启用管理面板</span>
     </label>
     <div id="panel-fields" class="hidden" style="margin-top: 12px;">
       <label>监听地址
@@ -405,10 +405,22 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
         <input type="checkbox" id="panel-pprof" style="width: auto; margin: 0;">
         <span>启用 pprof 性能分析</span>
       </label>
+      <label>代理存储文件
+        <input type="text" id="panel-store-path" placeholder="留空使用默认 /data/config/frpc_store.json" autocomplete="off">
+      </label>
       <div class="hint-sm" style="margin-bottom: 10px;">配置写入 frpc.toml 的 webServer 段，保存后需重启 frpc 生效。</div>
       <button onclick="savePanelConfig()">保存面板配置</button>
     </div>
     <div id="panel-hint" class="hint-sm" style="margin-top: 12px;"></div>
+  </div>
+
+  <!-- frpc.toml 卡片 -->
+  <div id="toml-card" class="card">
+    <div class="card-head">
+      <h2>frpc.toml</h2>
+      <button class="secondary" onclick="loadFrpcToml()" style="padding: 6px 12px; font-size: 12px;">&#x1F504; 刷新</button>
+    </div>
+    <pre id="frpc-toml">加载中...</pre>
   </div>
 
   <!-- 日志卡片 -->
@@ -730,7 +742,8 @@ function enterMainPage() {
     refreshStatus(),
     refreshLog(),
     loadMembership(),
-    loadPanelConfig()
+    loadPanelConfig(),
+    loadFrpcToml()
   ]).catch(err => console.error('Failed to load data:', err));
 }
 
@@ -1004,7 +1017,8 @@ async function doLogin() {
       loadTunnels(),
       refreshLog(),
       loadMembership(),
-      loadPanelConfig()
+      loadPanelConfig(),
+      loadFrpcToml()
     ]).then(() => {
       console.log('All data loaded successfully');
     }).catch(err => {
@@ -1346,6 +1360,21 @@ async function confirmRotateSecret() {
   }
 }
 
+// ==================== frpc.toml ====================
+
+async function loadFrpcToml() {
+  const el = document.getElementById('frpc-toml');
+  try {
+    const res = await fetch('/api/frpc-toml');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    el.textContent = data.content && data.content.trim() ? data.content : '尚未生成 frpc.toml（连接一次或保存一次配置后生成）';
+  } catch (err) {
+    console.error('Failed to load frpc.toml:', err);
+    el.textContent = '读取 frpc.toml 失败：' + err.message;
+  }
+}
+
 // ==================== frpc 管理面板 ====================
 
 async function loadPanelConfig() {
@@ -1359,6 +1388,7 @@ async function loadPanelConfig() {
     document.getElementById('panel-user').value = cfg.web_server_user || '';
     document.getElementById('panel-password').value = cfg.web_server_password || '';
     document.getElementById('panel-pprof').checked = !!cfg.web_server_pprof;
+    document.getElementById('panel-store-path').value = cfg.store_path || '';
     togglePanelFields();
   } catch (err) {
     console.error('Failed to load panel config:', err);
@@ -1391,7 +1421,8 @@ async function savePanelConfig() {
     web_server_port: parseInt(document.getElementById('panel-port').value, 10) || 0,
     web_server_user: document.getElementById('panel-user').value.trim(),
     web_server_password: document.getElementById('panel-password').value,
-    web_server_pprof: document.getElementById('panel-pprof').checked
+    web_server_pprof: document.getElementById('panel-pprof').checked,
+    store_path: document.getElementById('panel-store-path').value.trim()
   };
 
   try {
@@ -1403,6 +1434,7 @@ async function savePanelConfig() {
     const data = await res.json().catch(() => ({}));
     if (data.ok) {
       updatePanelHint();
+      loadFrpcToml();
       alert('已保存，重启 frpc 后生效');
     } else {
       alert('保存失败');
@@ -1717,7 +1749,8 @@ window.addEventListener('load', async () => {
         loadTunnels(),
         refreshLog(),
         loadMembership(),
-        loadPanelConfig()
+        loadPanelConfig(),
+        loadFrpcToml()
       ]).then(() => {
         console.log('All restored data loaded successfully');
       }).catch(err => {

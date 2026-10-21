@@ -18,6 +18,7 @@ import (
 const (
 	configDir  = "/data/config"
 	configFile = "/data/config/config.json"
+	frpcConfigFile = "/data/config/frpc.toml"
 	frpcBinary = "/usr/local/bin/frpc"
 	logFile    = "/data/logs/frpc.log"
 	defaultSite = "https://www.afrp.net"
@@ -47,6 +48,9 @@ type Config struct {
 	WebServerUser     string `json:"web_server_user,omitempty"`
 	WebServerPassword string `json:"web_server_password,omitempty"`
 	WebServerPprof    bool   `json:"web_server_pprof"`
+
+	// 管理面板的代理存储文件（frpc.toml 的 [store] 段）
+	StorePath string `json:"store_path,omitempty"`
 }
 
 // 账号密钥的存储键：官网账号名全局唯一，统一小写去空格
@@ -165,6 +169,7 @@ func main() {
 	http.HandleFunc("/api/plans", handlePlans)
 	http.HandleFunc("/api/config", handleConfig)
 	http.HandleFunc("/api/secret", handleSecret)
+	http.HandleFunc("/api/frpc-toml", handleFrpcToml)
 	http.HandleFunc("/api/tunnels", handleTunnels)
 	http.HandleFunc("/api/start", handleStart)
 	http.HandleFunc("/api/stop", handleStop)
@@ -683,6 +688,10 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 			cfg.WebServerPprof = v
 			panelChanged = true
 		}
+		if v, ok := updates["store_path"].(string); ok {
+			cfg.StorePath = strings.TrimSpace(v)
+			panelChanged = true
+		}
 
 		saveConfig(cfg)
 
@@ -696,6 +705,20 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		
 		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}
+}
+
+// 返回当前生成的 frpc.toml 内容，供页面查看
+func handleFrpcToml(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	data, err := os.ReadFile(frpcConfigFile)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "content": "", "exists": false})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "content": string(data), "exists": true})
 }
 
 func handleSecret(w http.ResponseWriter, r *http.Request) {
@@ -877,7 +900,7 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := exec.Command(frpcBinary, "-c", "/data/config/frpc.toml")
+	cmd := exec.Command(frpcBinary, "-c", frpcConfigFile)
 	cmd.Stdout = logF
 	cmd.Stderr = logF
 
@@ -994,6 +1017,16 @@ webServer.user = "%s"
 webServer.password = "%s"
 webServer.pprofEnable = %t
 `, escapeToml(addr), port, escapeToml(cfg.WebServerUser), escapeToml(cfg.WebServerPassword), cfg.WebServerPprof)
+
+		// 管理面板的代理存储文件；放在数据卷里，容器重建不丢
+		storePath := strings.TrimSpace(cfg.StorePath)
+		if storePath == "" {
+			storePath = filepath.Join(configDir, "frpc_store.json")
+		}
+		toml += fmt.Sprintf(`
+[store]
+path = "%s"
+`, escapeToml(storePath))
 	}
 
 	// 添加隧道配置
@@ -1027,7 +1060,7 @@ localPort = %d
 		}
 	}
 
-	os.WriteFile("/data/config/frpc.toml", []byte(toml), 0644)
+	os.WriteFile(frpcConfigFile, []byte(toml), 0644)
 }
 
 func escapeToml(s string) string {
