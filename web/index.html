@@ -370,7 +370,10 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
       </div>
     </div>
 
-    <h2 style="margin-top: 20px;">隧道管理</h2>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+      <h2 style="margin: 0;">隧道管理</h2>
+      <button class="secondary" onclick="openTomlModal()" style="padding: 4px 10px; font-size: 12px; margin: 0;">配置文件</button>
+    </div>
     <div id="tunnel-list"></div>
     <div style="margin-top: 10px; display: flex; gap: 10px;">
       <button class="secondary" onclick="showAddTunnelModal()">+ 添加隧道</button>
@@ -503,6 +506,20 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
         <button type="submit" onclick="saveTunnel(event)">保存</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- 配置文件编辑对话框 -->
+<div id="toml-modal" class="modal-overlay hidden" onclick="closeTomlModal(event)">
+  <div class="modal" onclick="event.stopPropagation()" style="max-width: 860px; width: 94%;">
+    <h3>frpc.toml</h3>
+    <p class="muted-sm-2">保存后文件里的隧道会同步到隧道管理列表；下次启动或改配置时该文件会按隧道列表重新生成。</p>
+    <textarea id="toml-content" rows="20" spellcheck="false" style="font-family: Consolas, Monaco, monospace; font-size: 12px; line-height: 1.5; resize: vertical;"></textarea>
+    <div id="toml-error" class="error-sm hidden" style="margin-top: 8px;"></div>
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeTomlModal()">取消</button>
+      <button onclick="saveToml()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -1352,6 +1369,61 @@ async function confirmRotateSecret() {
     }
   } catch (err) {
     alert('生成失败：' + err.message);
+  }
+}
+
+// ==================== frpc.toml 配置文件 ====================
+
+async function openTomlModal() {
+  const ta = document.getElementById('toml-content');
+  const err = document.getElementById('toml-error');
+  err.classList.add('hidden');
+  ta.value = '加载中...';
+  document.getElementById('toml-modal').classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/frpc-toml');
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '读取失败');
+    ta.value = data.content || '';
+  } catch (e) {
+    ta.value = '';
+    err.textContent = '读取 frpc.toml 失败：' + e.message;
+    err.classList.remove('hidden');
+  }
+}
+
+function closeTomlModal(event) {
+  if (!event || event.target === document.getElementById('toml-modal')) {
+    document.getElementById('toml-modal').classList.add('hidden');
+  }
+}
+
+async function saveToml() {
+  const content = document.getElementById('toml-content').value;
+  const err = document.getElementById('toml-error');
+  err.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/frpc-toml', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ content })
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      err.textContent = data.error || '保存失败';
+      err.classList.remove('hidden');
+      return;
+    }
+
+    closeTomlModal();
+    await loadTunnels();
+    alert('已保存，隧道列表已更新');
+  } catch (e) {
+    err.textContent = '保存失败：' + e.message;
+    err.classList.remove('hidden');
   }
 }
 

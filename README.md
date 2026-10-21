@@ -43,7 +43,7 @@ docker run -d \
 1. **登录**：输入官网账号和密码，勾选「记住我」可保存账号以便下次一键登录
 2. **服务器**：选择节点。系统会按账号记住这次选择，下次登录自动回填；frpc 运行期间下拉框锁定，需先停止才能切换
 3. **Client Secret**：首次使用需粘贴官网「连接说明」里的密钥，或在页面点击「生成新密钥」由官网接口签发。密钥按账号保存，切换账号时自动取用对应密钥并写入 `frpc.toml`
-4. **隧道**：点击「+ 添加隧道」填写名称、类型、本地 IP/端口等信息
+4. **隧道**：点击「+ 添加隧道」填写名称、类型、本地 IP/端口等信息；「隧道管理」标题右侧的「配置文件」可打开 `frpc.toml` 直接编辑，保存后文件里的隧道会同步到隧道列表
 5. **启动**：点击「启动」按钮，frpc 开始运行；「停止」可断开
 6. **管理面板**：「frpc 管理面板」卡片可开启 frpc 自带的 Web 面板，填写用户名和密码（监听地址、端口、代理存储文件留空即用默认），保存后写入 `frpc.toml` 的 `webServer` 段和 `[store]` 段并提示面板访问地址（Docker 部署需额外映射该端口，如 `-p 7400:7400`）；保存后重启 frpc 生效
 7. **监控**：查看运行状态与实时日志
@@ -125,6 +125,8 @@ docker build -t afrp/afrp .
 | `/api/config` | POST | 保存配置（服务器地址/端口/ID、Client Secret、管理面板参数） |
 | `/api/secret` | GET | 获取当前账号的 Client Secret |
 | `/api/secret` | POST | 保存或轮换 Client Secret（`action: save` / `rotate`） |
+| `/api/frpc-toml` | GET | 读取当前 frpc.toml 内容 |
+| `/api/frpc-toml` | POST | 保存 frpc.toml，并把文件里的 `[[proxies]]` 同步到隧道列表 |
 | `/api/tunnels` | GET | 隧道列表（网页配置 + 管理面板存储文件里的隧道） |
 | `/api/tunnels` | POST | 新增或更新隧道（按名称覆盖） |
 | `/api/tunnels` | DELETE | 删除隧道（按名称） |

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -176,6 +177,7 @@ func main() {
 	http.HandleFunc("/api/plans", handlePlans)
 	http.HandleFunc("/api/config", handleConfig)
 	http.HandleFunc("/api/secret", handleSecret)
+	http.HandleFunc("/api/frpc-toml", handleFrpcToml)
 	http.HandleFunc("/api/tunnels", handleTunnels)
 	http.HandleFunc("/api/start", handleStart)
 	http.HandleFunc("/api/stop", handleStop)
@@ -713,6 +715,58 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// 查看 / 保存 frpc.toml
+// 保存时把文件里的 [[proxies]] 同步到隧道列表，并原样写回配置文件
+func handleFrpcToml(w http.ResponseWriter, r *http.Request) {
+	cfg := loadConfig()
+
+	switch r.Method {
+	case "GET":
+		// 还没有生成过就先生成一份，避免弹窗空白
+		if _, err := os.Stat(frpcConfigFile); os.IsNotExist(err) {
+			writeFrpcConfig(cfg)
+		}
+		data, err := os.ReadFile(frpcConfigFile)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "content": string(data)})
+
+	case "POST":
+		var req struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "invalid request"})
+			return
+		}
+		if strings.TrimSpace(req.Content) == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": "配置文件内容为空"})
+			return
+		}
+
+		proxies, err := parseTomlProxies(req.Content)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+
+		// 文件里的隧道同步到隧道列表
+		cfg.Tunnels = proxies
+		saveConfig(cfg)
+
+		if err := os.WriteFile(frpcConfigFile, []byte(req.Content), 0644); err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "count": len(proxies)})
+
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
 func handleSecret(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
@@ -1163,6 +1217,184 @@ func escapeToml(s string) string {
 	s = strings.ReplaceAll(s, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "\"", "\\\"")
 	return s
+}
+
+// 从 TOML 内容里解析 [[proxies]] 段，转成隧道列表
+func parseTomlProxies(content string) ([]Tunnel, error) {
+	lines := strings.Split(content, "\n")
+	var (
+		proxies []Tunnel
+		cur     Tunnel
+		inProxy bool
+	)
+
+	flush := func() {
+		if inProxy {
+			proxies = append(proxies, cur)
+			cur = Tunnel{}
+		}
+	}
+
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimSpace(stripTomlComment(lines[i]))
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, "[") {
+			flush()
+			inProxy = strings.HasPrefix(line, "[[") && strings.TrimSpace(strings.Trim(line, "[]")) == "proxies"
+			continue
+		}
+
+		eq := strings.Index(line, "=")
+		if eq < 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		val := strings.TrimSpace(line[eq+1:])
+
+		// 数组可能跨行
+		if strings.HasPrefix(val, "[") && !strings.HasSuffix(val, "]") {
+			for i+1 < len(lines) {
+				i++
+				val += " " + strings.TrimSpace(stripTomlComment(lines[i]))
+				if strings.HasSuffix(strings.TrimSpace(val), "]") {
+					break
+				}
+			}
+		}
+
+		if !inProxy {
+			continue
+		}
+
+		switch key {
+		case "name":
+			cur.Name = parseTomlScalar(val)
+		case "type":
+			cur.Type = parseTomlScalar(val)
+		case "localIP":
+			cur.LocalIP = parseTomlScalar(val)
+		case "localPort":
+			cur.LocalPort = atoiOrZero(parseTomlScalar(val))
+		case "remotePort":
+			if n := atoiOrZero(parseTomlScalar(val)); n > 0 {
+				cur.RemotePort = &n
+			}
+		case "subdomain":
+			cur.Subdomain = parseTomlScalar(val)
+		case "secretKey":
+			cur.SecretKey = parseTomlScalar(val)
+		case "customDomains":
+			if domains := parseTomlStringArray(val); len(domains) > 0 {
+				cur.CustomDomain = domains[0]
+			}
+		}
+	}
+	flush()
+
+	for _, t := range proxies {
+		if t.Name == "" || t.Type == "" || t.LocalIP == "" || t.LocalPort == 0 {
+			return nil, fmt.Errorf("隧道配置不完整（name/type/localIP/localPort 必填）")
+		}
+	}
+	return proxies, nil
+}
+
+// 去掉行尾注释，字符串里的 # 不算注释
+func stripTomlComment(line string) string {
+	var quote byte
+	inStr := false
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if inStr {
+			if c == '\\' && quote == '"' {
+				i++
+				continue
+			}
+			if c == quote {
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			inStr = true
+			quote = c
+		case '#':
+			return line[:i]
+		}
+	}
+	return line
+}
+
+// 解析 TOML 标量值，非字符串返回原始文本
+func parseTomlScalar(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if len(raw) >= 2 && raw[0] == '"' && raw[len(raw)-1] == '"' {
+		return unescapeTomlString(raw[1 : len(raw)-1])
+	}
+	if len(raw) >= 2 && raw[0] == '\'' && raw[len(raw)-1] == '\'' {
+		return raw[1 : len(raw)-1]
+	}
+	return raw
+}
+
+// 解析 TOML 字符串数组
+func parseTomlStringArray(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "[")
+	raw = strings.TrimSuffix(raw, "]")
+
+	items := []string{}
+	var cur strings.Builder
+	var quote byte
+	inStr := false
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if inStr {
+			cur.WriteByte(c)
+			if c == '\\' && quote == '"' && i+1 < len(raw) {
+				i++
+				cur.WriteByte(raw[i])
+				continue
+			}
+			if c == quote {
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			inStr = true
+			quote = c
+			cur.WriteByte(c)
+		case ',':
+			items = append(items, parseTomlScalar(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	if s := strings.TrimSpace(cur.String()); s != "" {
+		items = append(items, parseTomlScalar(s))
+	}
+	return items
+}
+
+func unescapeTomlString(s string) string {
+	s = strings.ReplaceAll(s, `\"`, `"`)
+	s = strings.ReplaceAll(s, `\\`, `\`)
+	return s
+}
+
+func atoiOrZero(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func readLastLines(f *os.File, n int) []string {
