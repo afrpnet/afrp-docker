@@ -1378,10 +1378,9 @@ function updatePanelHint() {
     el.style.color = '';
     return;
   }
-  const addr = document.getElementById('panel-addr').value.trim() || '0.0.0.0';
   const port = parseInt(document.getElementById('panel-port').value, 10) || 7400;
   const host = location.hostname || '<本机IP>';
-  el.textContent = `监听 ${addr}:${port}　面板访问地址：http://${host}:${port}　（Docker 部署需映射端口 ${port}:${port}，打开后用上面的用户名 / 密码登录）`;
+  el.textContent = `面板访问地址：http://${host}:${port}　（Docker 部署需映射端口 ${port}:${port}，打开后用上面的用户名 / 密码登录）`;
   el.style.color = document.getElementById('panel-user').value.trim() ? '' : 'var(--danger)';
 }
 
