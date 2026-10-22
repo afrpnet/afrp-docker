@@ -16,6 +16,7 @@ Docker 版 AFRP 内网穿透客户端，通过浏览器管理 frpc。无需安�
 - 🛠 **隧道管理**：Web 界面增删改隧道（TCP/UDP/HTTP/HTTPS/STCP/SUDP/XTCP）
 - 📊 **实时日志**：Web 界面查看 frpc 运行日志
 - 💾 **配置持久化**：Docker volume 保存配置、密钥、隧道
+- ⬆️ **核心在线升级**：页面直接检测并升级 frpc 核心，校验 SHA-256 后落盘到数据卷
 - ✅ **官方内核**：直接使用 fatedier/frp 官方镜像中的 frpc，保证版本正确性
 
 ## 快速开始
@@ -49,7 +50,7 @@ docker run -d \
 4. **隧道**：点击「+ 添加隧道」填写名称、类型、本地 IP/端口等信息，保存后自动重启 frpc 使其立即生效；「隧道管理」标题右侧的「配置文件」可打开 `frpc.toml` 直接编辑，保存后文件里的隧道会同步到隧道列表，并自动重启 frpc；在 frpc 管理面板的「配置」页改过 `frpc.toml` 后，回到网页点「刷新」即可看到这些隧道
 5. **启动**：点击「启动」按钮，frpc 开始运行；「停止」可断开
 6. **管理面板**：「状态」下方的小字勾选项「启用 frpc 管理面板」可开启 frpc 自带的 Web 面板，勾选后自动生成随机账号密码、写入 `frpc.toml` 的 `webServer` 段和 `[store]` 段并重启 frpc，下方会显示面板地址、账号和密码（Docker 部署需映射该端口，`-p 7400:7400`）
-7. **监控**：查看运行状态与实时日志
+7. **监控**：查看运行状态与实时日志；「frpc 核心」卡片可查看当前核心版本并在线升级核心
 8. **主题**：登录卡片右上角（登录后位于「退出登录」旁）可切换深色 / 浅色，默认跟随系统，选择结果记在浏览器本地
 
 ## 升级
@@ -90,6 +91,7 @@ docker run --rm -v afrp-data:/data -v $(pwd):/backup alpine tar xzf /backup/afrp
 | `/data/config/config.json` | 主配置：账号、服务器、密钥、隧道列表 |
 | `/data/config/frpc.toml` | 自动生成的 frpc 配置，启动时直接使用 |
 | `/data/config/frpc_store.json` | 管理面板的代理存储文件（启用管理面板后生成） |
+| `/data/core/frpc` | 在线升级后的 frpc 核心（未升级时使用镜像内置版本） |
 | `/data/logs/frpc.log` | frpc 运行日志 |
 
 `config.json` 中几个关键字段：
@@ -120,7 +122,16 @@ docker run --rm -v afrp-data:/data -v $(pwd):/backup alpine tar xzf /backup/afrp
 
 ### frpc 版本
 
-frpc 二进制直接从 `fatedier/frpc:v0.71.1` 官方镜像复制，无需手动下载，保证版本正确性和兼容性。如需升级版本，修改 `Dockerfile` 中的 `FROM fatedier/frpc:vX.Y.Z` 后重新构建：
+frpc 二进制直接从 `fatedier/frpc:v0.71.1` 官方镜像复制，无需手动下载，保证版本正确性和兼容性。镜像内的版本号记录在 `/usr/local/share/frpc-version`，页面「frpc 核心」卡片会显示为「镜像内置」。
+
+页面上的「frpc 核心」卡片可以直接在线升级核心，不用重建镜像：
+
+- 版本检测走官网的 `manifest.json`，显示当前版本、镜像内置版本和可升级的最新版本
+- 点「升级核心」从 CDN 下载对应架构的 frpc，校验 SHA-256 后装到 `/data/core/frpc`，完成后自动重启 frpc
+- 升级后的核心放在数据卷里，重建容器不会丢；「恢复内置版本」删掉它，回到镜像自带的基线
+- 升级前会先执行一次新核心确认能跑起来，架构不符时不会覆盖现有核心
+
+如需升级镜像内的基线版本，修改 `Dockerfile` 中的 `FROM fatedier/frpc:vX.Y.Z` 后重新构建：
 
 ```bash
 docker build -t afrp/afrp .
@@ -145,6 +156,9 @@ docker build -t afrp/afrp .
 | `/api/stop` | POST | 停止 frpc |
 | `/api/status` | GET | 运行状态，同时返回当前账号选中的服务器 ID |
 | `/api/log` | GET | 获取最新日志 |
+| `/api/core` | GET | frpc 核心信息：当前版本、镜像内置版本、清单里的最新版本 |
+| `/api/core/upgrade` | POST | 下载并校验最新核心，装到 `/data/core/frpc`，完成后重启 frpc |
+| `/api/core/restore` | POST | 删除升级的核心，恢复镜像内置版本 |
 
 ## 开发
 
@@ -170,6 +184,7 @@ docker run -d --name afrp-web -p 8000:8000 -p 7400:7400 -v afrp-data:/data afrp/
 ```
 afrp-web/
 ├── main.go              # Go 后端（HTTP API + frpc 进程管理）
+├── core.go              # frpc 核心版本检测与在线升级
 ├── web/index.html       # Web UI（原生 HTML/JS）
 ├── Dockerfile           # 多阶段构建（从 fatedier/frp 官方镜像复制 frpc）
 ├── deploy.sh            # 服务器端容器更新脚本

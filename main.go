@@ -27,7 +27,6 @@ var (
 	configFile     = "/data/config/config.json"
 	frpcConfigFile = "/data/config/frpc.toml"
 	logFile        = "/data/logs/frpc.log"
-	frpcBinary     = "/usr/local/bin/frpc"
 )
 
 type Config struct {
@@ -190,6 +189,9 @@ func main() {
 	http.HandleFunc("/api/stop", handleStop)
 	http.HandleFunc("/api/status", handleStatus)
 	http.HandleFunc("/api/log", handleLog)
+	http.HandleFunc("/api/core", handleCoreInfo)
+	http.HandleFunc("/api/core/upgrade", handleCoreUpgrade)
+	http.HandleFunc("/api/core/restore", handleCoreRestore)
 	
 	// 使用相对路径适配 Windows/Linux
 	webDir := "./web"
@@ -1429,7 +1431,7 @@ func startFrpcProcess(cfg Config) error {
 		return err
 	}
 
-	cmd := exec.Command(frpcBinary, "-c", frpcConfigFile)
+	cmd := exec.Command(activeCorePath(), "-c", frpcConfigFile)
 	cmd.Stdout = logF
 	cmd.Stderr = logF
 
