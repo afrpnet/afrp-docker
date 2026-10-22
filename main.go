@@ -1577,6 +1577,7 @@ auth.oidc.tokenEndpointURL = "%s"
 auth.oidc.audience = "%s"
 auth.oidc.scope = "%s"
 auth.oidc.additionalEndpointParams.client_type = "docker-web"
+metadatas = { client_type = "docker-web" }
 `, cfg.ServerAddr, cfg.ServerPort, cfg.User, cfg.User, secret,
 		cfg.AuthOIDCTokenEndpoint, cfg.AuthOIDCAudience, cfg.AuthOIDCScope)
 
