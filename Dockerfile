@@ -21,7 +21,7 @@ RUN FRPC_PATH=$(find /tmp/frpc-image -name "frpc" -type f 2>/dev/null | head -1)
       echo "frpc not found in image"; exit 1; \
     fi
 
-# 记录内置核心版本：面板显示"恢复内置版本"的基线，也用于和清单最新版本对比
+# 记录内置二进制程序版本：面板显示"恢复内置版本"的基线，也用于和清单最新版本对比
 RUN mkdir -p /usr/local/share && \
     /usr/local/bin/frpc -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 > /usr/local/share/frpc-version && \
     echo "内置 frpc 版本：$(cat /usr/local/share/frpc-version)"
