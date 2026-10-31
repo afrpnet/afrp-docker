@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-// frpc 核心有两份：
+// frpc 二进制程序有两份：
 //   镜像内置基线 /usr/local/bin/frpc ——随镜像固定，升级镜像才能换
 //   持久卷里的 /data/core/frpc ——面板一键升级后的版本，重建容器不丢
 const (
@@ -53,7 +53,7 @@ type manifestDoc struct {
 	Items   []manifestItem `json:"items"`
 }
 
-// 当前生效的核心路径：优先用升级过的副本，没有则用镜像内置的
+// 当前生效的二进制程序路径：优先用升级过的副本，没有则用镜像内置的
 func activeCorePath() string {
 	if _, err := os.Stat(coreBinary); err == nil {
 		return coreBinary
@@ -83,7 +83,7 @@ func builtinCoreVersion() string {
 	return binaryVersion(builtinFrpcBinary)
 }
 
-// 正在使用的核心版本
+// 正在使用的二进制程序版本
 func currentCoreVersion() string {
 	if v := binaryVersion(activeCorePath()); v != "" {
 		return v
@@ -208,7 +208,7 @@ func downloadToFile(url, dest string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// 核心信息：当前版本、内置版本、清单里的最新版本
+// 二进制程序信息：当前版本、内置版本、清单里的最新版本
 func handleCoreInfo(w http.ResponseWriter, r *http.Request) {
 	cfg := loadConfig()
 	cur := currentCoreVersion()
@@ -227,7 +227,7 @@ func handleCoreInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	it := findCoreEntry(doc, runtime.GOARCH)
 	if it == nil {
-		resp["error"] = "清单中没有适用于当前架构的核心"
+		resp["error"] = "清单中没有适用于当前架构的二进制程序"
 		json.NewEncoder(w).Encode(resp)
 		return
 	}
@@ -238,7 +238,7 @@ func handleCoreInfo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// 一键升级核心：下载到 /data/core/frpc，校验后替换并重启
+// 一键升级二进制程序：下载到 /data/core/frpc，校验后替换并重启
 func handleCoreUpgrade(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -253,7 +253,7 @@ func handleCoreUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	it := findCoreEntry(doc, runtime.GOARCH)
 	if it == nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "清单中没有适用于当前架构的核心"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "清单中没有适用于当前架构的二进制程序"})
 		return
 	}
 	if it.SHA256 == "" {
@@ -272,14 +272,14 @@ func handleCoreUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.MkdirAll(coreDir, 0755); err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "创建核心目录失败：" + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "创建二进制程序目录失败：" + err.Error()})
 		return
 	}
 	tmp := filepath.Join(coreDir, "frpc.new")
 	sum, err := downloadToFile(it.URL, tmp)
 	if err != nil {
 		os.Remove(tmp)
-		json.NewEncoder(w).Encode(map[string]string{"error": "下载核心失败：" + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "下载二进制程序失败：" + err.Error()})
 		return
 	}
 	if !strings.EqualFold(sum, it.SHA256) {
@@ -292,24 +292,24 @@ func handleCoreUpgrade(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "设置执行权限失败：" + err.Error()})
 		return
 	}
-	// 架构不符时执行会失败，先确认新核心能跑起来再替换
+	// 架构不符时执行会失败，先确认新二进制程序能跑起来再替换
 	if v := binaryVersion(tmp); v == "" {
 		os.Remove(tmp)
-		json.NewEncoder(w).Encode(map[string]string{"error": "新核心无法运行（通常是架构不匹配）"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "新二进制程序无法运行（通常是架构不匹配）"})
 		return
 	}
 	if err := os.Rename(tmp, coreBinary); err != nil {
 		os.Remove(tmp)
-		json.NewEncoder(w).Encode(map[string]string{"error": "替换核心失败：" + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "替换二进制程序失败：" + err.Error()})
 		return
 	}
 
-	// 运行中才重启，让新核心立刻生效
+	// 运行中才重启，让新二进制程序立刻生效
 	restarted := restartFrpc(false)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok":       true,
 		"version":  it.Version,
-		"message":  "核心已升级到 v" + it.Version,
+		"message":  "二进制程序已升级到 v" + it.Version,
 		"restarted": restarted,
 	})
 }

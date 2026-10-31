@@ -391,13 +391,13 @@ html[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
     <div id="panel-hint" class="hint-sm" style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 14px;"></div>
   </div>
 
-  <!-- 核心版本卡片 -->
+  <!-- 二进制程序版本卡片 -->
   <div id="core-card" class="card">
-    <h2>frpc 核心</h2>
+    <h2>frpc 二进制程序</h2>
     <div id="core-info" class="hint-sm">加载中...</div>
     <div class="secret-actions">
       <button class="secondary" onclick="loadCore()">&#x1F504; 刷新</button>
-      <button id="core-upgrade-btn" onclick="upgradeCore()" disabled>升级核心</button>
+      <button id="core-upgrade-btn" onclick="upgradeCore()" disabled>升级二进制程序</button>
       <button id="core-restore-btn" class="secondary" onclick="restoreCore()" disabled>恢复内置版本</button>
     </div>
   </div>
@@ -1541,7 +1541,7 @@ async function refreshLog() {
   document.getElementById('log').textContent = text || '暂无日志';
 }
 
-// ==================== frpc 核心版本 ====================
+// ==================== frpc 二进制程序版本 ====================
 
 async function loadCore() {
   const info = document.getElementById('core-info');
@@ -1553,12 +1553,12 @@ async function loadCore() {
     const src = d.upgraded ? '已升级' : '镜像内置';
     const ver = v => (v ? 'v' + v : '未知');
     if (d.error) {
-      info.textContent = (d.current_version ? `当前核心 ${ver(d.current_version)}（${src}）｜` : '') + d.error;
+      info.textContent = (d.current_version ? `当前二进制程序 ${ver(d.current_version)}（${src}）｜` : '') + d.error;
       btnUp.disabled = true;
       btnRestore.disabled = !d.upgraded;
       return;
     }
-    let text = `当前核心 ${ver(d.current_version)}（${src}）｜镜像内置 ${ver(d.builtin_version)}`;
+    let text = `当前二进制程序 ${ver(d.current_version)}（${src}）｜镜像内置 ${ver(d.builtin_version)}`;
     if (d.latest_version) {
       text += d.can_upgrade ? `｜可升级到 v${d.latest_version}` : `｜已是最新版本 v${d.latest_version}`;
     }
@@ -1566,21 +1566,21 @@ async function loadCore() {
     btnUp.disabled = !d.can_upgrade;
     btnRestore.disabled = !d.upgraded;
   } catch (err) {
-    info.textContent = '获取核心信息失败：' + err.message;
+    info.textContent = '获取二进制程序信息失败：' + err.message;
     btnUp.disabled = true;
   }
 }
 
 async function upgradeCore() {
-  if (!confirm('将下载并替换 frpc 核心（会校验 SHA-256），完成后自动重启服务。继续？')) return;
+  if (!confirm('将下载并替换 frpc 二进制程序（会校验 SHA-256），完成后自动重启服务。继续？')) return;
   const btn = document.getElementById('core-upgrade-btn');
   btn.disabled = true;
   const info = document.getElementById('core-info');
-  info.textContent = '正在下载并校验核心，请稍候…';
+  info.textContent = '正在下载并校验二进制程序，请稍候…';
   try {
     const res = await fetch('/api/core/upgrade', { method: 'POST' });
     const d = await res.json().catch(() => ({}));
-    info.textContent = d.error ? ('升级失败：' + d.error) : (d.message || ('核心已升级到 v' + d.version));
+    info.textContent = d.error ? ('升级失败：' + d.error) : (d.message || ('二进制程序已升级到 v' + d.version));
   } catch (err) {
     info.textContent = '升级失败：' + err.message;
   }
@@ -1590,7 +1590,7 @@ async function upgradeCore() {
 }
 
 async function restoreCore() {
-  if (!confirm('将恢复为镜像内置的 frpc 核心版本，恢复后自动重启服务。继续？')) return;
+  if (!confirm('将恢复为镜像内置的 frpc 二进制程序版本，恢复后自动重启服务。继续？')) return;
   const btn = document.getElementById('core-restore-btn');
   btn.disabled = true;
   const info = document.getElementById('core-info');
