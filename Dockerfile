@@ -4,8 +4,9 @@ FROM fatedier/frpc:v0.71.1 AS frpc
 # 阶段2: 构建 Go 后端
 FROM golang:1.22-alpine AS builder
 WORKDIR /build
+ARG VERSION=dev
 COPY main.go core.go .
-RUN go mod init afrp-web && go build -o afrp-web .
+RUN go mod init afrp-web && go build -ldflags "-X main.appVersion=${VERSION}" -o afrp-web .
 
 # 阶段3: 最终运行镜像
 FROM alpine:3.19

@@ -33,17 +33,22 @@ jobs:
         run: |
           ref="${GITHUB_REF#refs/tags/}"
           if [ "$ref" = "$GITHUB_REF" ]; then
-            ref="latest"
+            version="latest"
+            display="dev"
           else
-            ref="${ref#v}"
+            version="${ref#v}"
+            display="v${version}"
           fi
-          echo "version=${ref}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "display=${display}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.display }}
           # ACR 个人版不支持 BuildKit 的 OCI attestation（empty descriptor）清单
           provenance: false
           sbom: false

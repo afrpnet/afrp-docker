@@ -21,6 +21,9 @@ const (
 	defaultSite = "https://www.afrp.net"
 )
 
+// appVersion 由构建时注入：go build -ldflags "-X main.appVersion=1.3.0"
+var appVersion = "dev"
+
 // 运行时路径；做成变量方便测试时指向临时目录
 var (
 	configDir      = "/data/config"
@@ -200,10 +203,31 @@ func main() {
 		webDir = "/web"
 	}
 	
-	http.Handle("/", http.FileServer(http.Dir(webDir)))
+	http.Handle("/", indexHandler(webDir))
 
 	log.Println("AFRP Web UI starting on :8000")
 	log.Fatal(http.ListenAndServe(":8000", nil))
+}
+
+// indexHandler 负责首页：把 {{APP_VERSION}} 占位符替换成构建版本号后输出，
+// 其余静态文件仍由 FileServer 提供。
+func indexHandler(webDir string) http.Handler {
+	files := http.FileServer(http.Dir(webDir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" && r.URL.Path != "/index.html" {
+			files.ServeHTTP(w, r)
+			return
+		}
+		data, err := os.ReadFile(filepath.Join(webDir, "index.html"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		html := strings.ReplaceAll(string(data), "{{APP_VERSION}}", appVersion)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Write([]byte(html))
+	})
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
