@@ -42,6 +42,14 @@ docker run -d \
 
 > 💡 `-p 7400:7400` 是 frpc 自带管理面板的端口，映射后容器外才能打开面板；不用管理面板可以不映射。
 
+> 🇨🇳 同一镜像同时发布到阿里云 ACR 个人版（国内拉取更快）：
+>
+> ```bash
+> docker pull crpi-31z6v1rz7y15fca2.cn-beijing.personal.cr.aliyuncs.com/afrp/afrp:latest
+> docker run -d --name afrp-web --restart unless-stopped -p 8000:8000 -p 7400:7400 -v afrp-data:/data crpi-31z6v1rz7y15fca2.cn-beijing.personal.cr.aliyuncs.com/afrp/afrp:latest
+> ```
+
+
 ## 使用说明
 
 1. **登录**：输入官网账号和密码，勾选「记住我」可保存账号以便下次一键登录
