@@ -44,6 +44,9 @@ jobs:
         with:
           context: .
           push: true
+          # ACR 个人版不支持 BuildKit 的 OCI attestation（empty descriptor）清单
+          provenance: false
+          sbom: false
           tags: |
             afrp/afrp:latest
             afrp/afrp:${{ steps.version.outputs.version }}
